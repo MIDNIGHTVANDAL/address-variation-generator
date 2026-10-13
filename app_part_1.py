@@ -36,29 +36,56 @@ def double_first_vowel(word: str) -> str:
     return word
 
 
-def format_bestbuy(parts) -> dict:
+def format_bestbuy(parts, code_on=True, code_letters=4, code_digits=4, city_mode="doubled") -> dict:
     street = mutate_street_name(parts["street_name"])
     stype = mutate_street_type(parts["street_type"])
-    city = " ".join(double_first_vowel(w) for w in parts["city"].split())
+    words = parts["city"].split()
+    if city_mode == "regular":
+        city = parts["city"]
+    elif city_mode == "mix":
+        city = " ".join(double_first_vowel(word) if random.random() < 0.5 else word for word in words)
+    else:
+        city = " ".join(double_first_vowel(word) for word in words)
     line1 = f"{random_junk(3, 'abcdefghijklmnopqrstuvwxyz')}{parts['house']} {street} {stype}"
-    line2 = f"{random_junk(4)} {random.randint(1000, 9999)}"
-    state = parts["state"]
-    zipcode = parts["zip"]
-    line3 = f"{city}, {state} {zipcode}"
-    return {
-        "text": f"{line1}\n{line2}\n{line3}",
+    line2 = ""
+    if code_on and (code_letters or code_digits):
+        letters = random_junk(code_letters) if code_letters else ""
+        digits = f"{random.randint(0, 10 ** code_digits - 1):0{code_digits}d}" if code_digits else ""
+        line2 = " ".join(part for part in (letters, digits) if part)
+    rec = {
+        "kind": "bestbuy",
         "line1": line1,
         "line2": line2,
         "line3": "",
         "city": city,
-        "state": state,
-        "zip": zipcode,
+        "state": parts["state"],
+        "zip": parts["zip"],
     }
+    rec["text"] = render_text(rec)
+    return rec
 
 
-def generate_bestbuy(address, count):
-    parts = parse_address(address)
-    return [format_bestbuy(parts) for _ in range(count)]
+def generate_bestbuy(addresses, count, code_on, code_letters, code_digits, city_mode, jig):
+    quotas = spread_count(count, len(addresses))
+    seen = set()
+    results = []
+    for address, qty in zip(addresses, quotas):
+        if qty == 0:
+            continue
+        parts = parse_address(address)
+
+        def build(attempt, parts=parts, qty=qty):
+            letters = code_letters + (1 if attempt > max(qty * 12, 800) else 0)
+            rec = format_bestbuy(parts, code_on, letters, code_digits, city_mode)
+            return apply_line_jig(rec, jig)
+
+        batch = _take_unique(qty, build)
+        for rec in batch:
+            if rec["text"] in seen:
+                raise RuntimeError("Two of the addresses produced the same line. Change one of them.")
+            seen.add(rec["text"])
+        results.extend(batch)
+    return results
 
 
 def get_first_name(mode, fixed=""):
