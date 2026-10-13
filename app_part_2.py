@@ -190,6 +190,23 @@ with st.sidebar:
         card_month = st.text_input("Expiration month", value="", key="card-month")
         card_year = st.text_input("Expiration year", value="", key="card-year")
         card_cvv = st.text_input("CVV", value="", type="password", key="card-cvv")
+        card_file = st.file_uploader(
+            "Upload cards CSV",
+            type=["csv"],
+            key=f"card-file-{st.session_state.get('upload_nonce', 0)}",
+            help="Columns: Name on Card, Card Number, Expiration Month, Expiration Year, Card CVV, Card Type, Card State.",
+        )
+    uploaded_cards = []
+    if card_file is not None:
+        try:
+            uploaded_cards = parse_card_csv(card_file.getvalue().decode("utf-8-sig", errors="replace"))
+            st.caption(f"{len(uploaded_cards)} card(s) loaded. They rotate onto the profiles. Full numbers are only in the download.")
+            for card in uploaded_cards[:8]:
+                st.text(f"{card['type'] or 'Card'} ····{card['number'][-4:]}  {card['name']}")
+            if len(uploaded_cards) > 8:
+                st.caption(f"and {len(uploaded_cards) - 8} more")
+        except Exception as exc:
+            st.error(str(exc))
     export_opts = {
         "prefix": profile_prefix,
         "jig_names": jig_names,
@@ -216,6 +233,7 @@ with st.sidebar:
         "card_month": card_month.strip(),
         "card_year": card_year.strip(),
         "card_cvv": card_cvv.strip(),
+        "cards": uploaded_cards,
     }
     st.divider()
     st.markdown(
@@ -232,6 +250,7 @@ with st.sidebar:
         st.session_state["authed"] = False
         st.session_state.pop("target_out", None)
         st.session_state.pop("bb_out", None)
+        st.session_state["upload_nonce"] = st.session_state.get("upload_nonce", 0) + 1
         st.rerun()
 
 target_tab, bestbuy_tab = st.tabs(["Target", "Best Buy"])
@@ -276,12 +295,14 @@ with bestbuy_tab:
     code_on = st.checkbox("Include extra code line", value=True, key="b-code")
     code_letters = st.slider("Code letters", 0, 8, 4, key="b-letters", disabled=not code_on)
     code_digits = st.slider("Code digits", 0, 8, 4, key="b-digits", disabled=not code_on)
-    city_mode_label = st.selectbox(
-        "City spelling",
-        ["Doubled vowel", "Regular spelling", "Mix both"],
-        key="b-city",
-    )
-    city_mode = {"Doubled vowel": "doubled", "Regular spelling": "regular", "Mix both": "mix"}[city_mode_label]
+    use_regular_city = st.checkbox("Regular city spelling", value=True, key="b-regular")
+    use_doubled_city = st.checkbox("Extra vowel in the city", value=True, key="b-vowel")
+    if use_regular_city and use_doubled_city:
+        city_mode = "both"
+    elif use_doubled_city:
+        city_mode = "doubled"
+    else:
+        city_mode = "regular"
     bb_address = st.text_area(
         "Enter address", value="", height=140,
         placeholder="Enter address\nOne per line, up to 10",
