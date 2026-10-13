@@ -7,9 +7,12 @@ Target tab: word+digit house number, junk letters on the street.
 Best Buy tab: the Cirillo label pattern.
 """
 
+import json
 import os
 import random
 import re
+from io import StringIO
+import csv
 
 import streamlit as st
 
@@ -157,19 +160,30 @@ def parse_address(addr: str):
     }
 
 
-def format_target(parts, junk1, junk2, include_dash, extra_spaces, case_style) -> str:
+def format_target(parts, junk1, junk2, include_dash, extra_spaces, case_style) -> dict:
     sep = " - " if include_dash else " "
     gap = "  " if extra_spaces else " "
-    line = (
+    street_line = (
         f"{number_to_word_digit(parts['house'])}{sep}{junk1}{parts['street_name'].replace(' ', '')}"
-        f"{gap}{junk2}{expand_street_type(parts['street_type'])} "
-        f"{parts['city']}, {parts['state']}, {parts['zip']}"
+        f"{gap}{junk2}{expand_street_type(parts['street_type'])}"
     )
+    city = parts["city"]
+    state = parts["state"]
+    zipcode = parts["zip"]
     if case_style == "upper":
-        return line.upper()
-    if case_style == "lower":
-        return line.lower()
-    return line
+        street_line, city, state = street_line.upper(), city.upper(), state.upper()
+    elif case_style == "lower":
+        street_line, city, state = street_line.lower(), city.lower(), state.lower()
+    text = f"{street_line} {city}, {state}, {zipcode}"
+    return {
+        "text": text,
+        "line1": street_line.strip(),
+        "line2": "",
+        "line3": "",
+        "city": city,
+        "state": state,
+        "zip": zipcode,
+    }
 
 
 def generate_target(address, count, junk_len, include_dash, extra_spaces, case_style):
