@@ -1,21 +1,55 @@
-        transform: translateY(-3px) scale(1.015) !important;
-        filter: brightness(1.12);
-        box-shadow:
-            0 0 0 1px rgba(255, 180, 230, 0.45),
-            0 14px 32px rgba(0, 0, 0, 0.5),
-            0 0 36px rgba(255, 45, 149, 0.7) !important;
+# ---------- UI ----------
+st.set_page_config(page_title="Address Variation Generator", layout="wide", page_icon="MV")
+st.markdown(
+    """
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;800&family=Rajdhani:wght@500;600;700&display=swap');
+    .stApp {
+        background:
+            radial-gradient(1200px 500px at 10% -10%, rgba(255, 30, 140, 0.22), transparent 55%),
+            radial-gradient(900px 420px at 100% 0%, rgba(110, 40, 255, 0.18), transparent 50%),
+            linear-gradient(180deg, #07040c 0%, #100814 45%, #07040c 100%);
+        color: #f4e9f7;
+        font-family: 'Rajdhani', sans-serif;
     }
-    .stButton > button:active, .stDownloadButton > button:active {
-        transform: translateY(0) scale(0.99) !important;
+    h1, h2, h3, [data-testid="stSidebar"] h2 {
+        font-family: 'Orbitron', sans-serif !important;
+        letter-spacing: 0.06em;
     }
-    [data-testid="stRadio"] label, [data-testid="stCheckbox"] label {
-        font-family: 'Rajdhani', sans-serif !important;
-        letter-spacing: 0.04em;
+    h1 { color: #ff4db8 !important; text-shadow: 0 0 18px rgba(255, 45, 149, 0.45); }
+    [data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #120816 0%, #09060e 100%);
+        border-right: 1px solid rgba(255, 45, 149, 0.28);
+    }
+    .stTextArea textarea, .stTextInput input, [data-baseweb="select"] > div {
+        background: #140a18 !important;
+        color: #fff !important;
+        border: 1px solid rgba(255, 45, 149, 0.45) !important;
+        border-radius: 12px !important;
+    }
+    .stButton > button, .stDownloadButton > button,
+    button[data-testid="stBaseButton-primary"],
+    button[data-testid="stBaseButton-secondary"] {
+        font-family: 'Orbitron', sans-serif !important;
+        font-weight: 700 !important;
+        letter-spacing: 0.12em !important;
+        text-transform: uppercase !important;
+        border-radius: 16px !important;
+        min-height: 3.2rem !important;
+        border: 1px solid rgba(255, 77, 184, 0.7) !important;
+    }
+    .stButton > button, button[data-testid="stBaseButton-primary"] {
+        background: linear-gradient(120deg, #ff2d95 0%, #b026ff 55%, #6a1bff 100%) !important;
+        color: #fff !important;
+    }
+    .stDownloadButton > button, button[data-testid="stBaseButton-secondary"] {
+        background: linear-gradient(160deg, #1a0d22 0%, #2a1038 100%) !important;
+        color: #ffd6f2 !important;
     }
     .mv-kicker {
         font-family: 'Orbitron', sans-serif;
         font-size: 0.72rem;
-        letter-spacing: 0.28em;
+        letter-spacing: 0.22em;
         color: #ff7ac8;
         margin: 0 0 0.35rem;
     }
@@ -24,97 +58,61 @@
     unsafe_allow_html=True,
 )
 
-col_img, col_title = st.columns([1, 5])
-with col_img:
-    if IMAGE_PATH and os.path.exists(IMAGE_PATH):
+head_l, head_r = st.columns([1, 5])
+with head_l:
+    if IMAGE_PATH:
         st.image(IMAGE_PATH, width=80)
-with col_title:
+with head_r:
     st.title("Address Variation Generator")
     st.caption("Created by Midnightvandal")
 
-st.markdown('<p class="mv-kicker">SOURCE ADDRESS</p>', unsafe_allow_html=True)
-
 with st.sidebar:
     st.header("Name Settings")
-    first_mode = st.radio(
-        "First Name",
-        ["Fixed", "Random (store item)", "Blank"],
-        index=1,
-    )
-    fixed_first = st.text_input("Fixed First Name", value="LAPTOP", disabled=(first_mode != "Fixed"))
-    last_mode = st.radio(
-        "Last Name",
-        ["Fixed", "Random (One-Twenty)", "Blank"],
-        index=1,
-    )
-    fixed_last = st.text_input("Fixed Last Name", value="ONE", disabled=(last_mode != "Fixed"))
-    st.header("Variation Settings")
-    num_options = [50, 100, 250, 500, 1000, 5000]
-    count = st.selectbox("Number of variations", num_options, index=1)
-    junk_len = st.slider("Junk letter length", 1, 4, 2)
-    include_dash = st.checkbox("Include ' - ' separator", value=True)
-    extra_spaces = st.checkbox("Extra spaces in street line", value=False)
-    case_style = st.selectbox("Case style", ["mixed", "upper", "lower"], index=0)
+    first_mode_label = st.radio("First Name", ["Fixed", "Random (store item)", "Blank"], index=1)
+    fixed_first = st.text_input("Fixed First Name", value="LAPTOP", disabled=(first_mode_label != "Fixed"))
+    last_mode_label = st.radio("Last Name", ["Fixed", "Random (One-Twenty)", "Blank"], index=1)
+    fixed_last = st.text_input("Fixed Last Name", value="ONE", disabled=(last_mode_label != "Fixed"))
+    st.header("Batch")
+    count = st.selectbox("Number of variations", COUNTS, index=1)
 
-address_input = st.text_area(
-    "Enter address",
-    value="",
-    height=80,
-    placeholder="Enter address",
-)
+target_tab, bestbuy_tab = st.tabs(["Target", "Best Buy"])
 
-if st.button("GENERATE VARIATIONS", type="primary", use_container_width=True):
-    if not address_input.strip():
-        st.error("Please enter an address.")
-    else:
-        with st.spinner(f"Generating {count} variations..."):
+with target_tab:
+    st.markdown('<p class="mv-kicker">TARGET</p>', unsafe_allow_html=True)
+    st.caption("Word+digit house number, junk letters on the street name and spelled-out street type.")
+    junk_len = st.slider("Junk letter length", 1, 4, 2, key="t-junk")
+    include_dash = st.checkbox("Include dash separator", value=True, key="t-dash")
+    extra_spaces = st.checkbox("Extra spaces in the street line", value=False, key="t-space")
+    case_style = st.selectbox("Case style", ["mixed", "upper", "lower"], index=0, key="t-case")
+    target_address = st.text_area("Enter address", value="", height=80, placeholder="Enter address", key="t-addr")
+    if st.button("GENERATE VARIATIONS", type="primary", use_container_width=True, key="t-go"):
+        if not target_address.strip():
+            st.error("Please enter an address.")
+        else:
             try:
-                addresses = generate_address_variations(
-                    address_input.strip(),
-                    count,
-                    junk_len=junk_len,
-                    include_dash=include_dash,
-                    extra_spaces=extra_spaces,
-                    case_style=case_style,
+                addresses = generate_target(
+                    target_address.strip(), count, junk_len, include_dash, extra_spaces, case_style,
                 )
-                f_mode = "fixed" if first_mode == "Fixed" else ("random" if "Random" in first_mode else "blank")
-                l_mode = "fixed" if last_mode == "Fixed" else ("random" if "Random" in last_mode else "blank")
-                names = generate_names(len(addresses), f_mode, l_mode, fixed_first, fixed_last)
-                lines = []
-                for name, addr in zip(names, addresses):
-                    lines.append(f"{name}\n{addr}" if name else addr)
-                full_text = "\n\n".join(lines)
-                st.success(f"Generated {len(addresses)} variations")
-                st.markdown('<p class="mv-kicker">EXPORT</p>', unsafe_allow_html=True)
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.download_button(
-                        label="Download TXT",
-                        data=full_text,
-                        file_name=f"address_variations_{count}.txt",
-                        mime="text/plain",
-                        use_container_width=True,
-                        type="primary",
-                    )
-                with col2:
-                    csv_lines = ["Name,Address"]
-                    for name, addr in zip(names, addresses):
-                        name_esc = name.replace('"', '""')
-                        addr_esc = addr.replace('"', '""')
-                        csv_lines.append(f'"{name_esc}","{addr_esc}"')
-                    st.download_button(
-                        label="Download CSV",
-                        data="\n".join(csv_lines),
-                        file_name=f"address_variations_{count}.csv",
-                        mime="text/csv",
-                        use_container_width=True,
-                    )
-                st.subheader("Preview (first 10)")
-                st.text("\n\n".join(lines[:10]))
-                with st.expander(f"View all {len(addresses)} variations"):
-                    st.text_area("All results", full_text, height=400)
-            except Exception as e:
-                st.error(f"Error: {e}")
-                st.info("Try a clearer address format.")
+                names = generate_names(len(addresses), name_mode(first_mode_label), name_mode(last_mode_label), fixed_first, fixed_last)
+                st.session_state["target_out"] = (names, addresses)
+            except Exception as exc:
+                st.error(str(exc))
+    if "target_out" in st.session_state:
+        show_results("target", *st.session_state["target_out"], count)
 
-st.caption("First name = store item. Last name = One-Twenty. Junk letters. Spelled-out street type.")
+with bestbuy_tab:
+    st.markdown('<p class="mv-kicker">BEST BUY</p>', unsafe_allow_html=True)
+    st.caption("Junk prefix on the house number, nudged street name, spelled-out type with one inserted letter, extra code line, doubled vowel in the city.")
+    bb_address = st.text_area("Enter address", value="", height=80, placeholder="Enter address", key="b-addr")
+    if st.button("GENERATE VARIATIONS", type="primary", use_container_width=True, key="b-go"):
+        if not bb_address.strip():
+            st.error("Please enter an address.")
+        else:
+            try:
+                addresses = generate_bestbuy(bb_address.strip(), count)
+                names = generate_names(len(addresses), name_mode(first_mode_label), name_mode(last_mode_label), fixed_first, fixed_last)
+                st.session_state["bb_out"] = (names, addresses)
+            except Exception as exc:
+                st.error(str(exc))
+    if "bb_out" in st.session_state:
+        show_results("bestbuy", *st.session_state["bb_out"], count)
