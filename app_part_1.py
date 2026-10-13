@@ -54,19 +54,20 @@ def generate_bestbuy(address, count):
 def get_first_name(mode, fixed=""):
     if mode == "fixed" and fixed.strip():
         return fixed.strip().upper()
-    if mode == "random":
+    if mode in ("store", "random"):
         return random.choice(STORE_ITEMS).upper()
+    if mode == "real":
+        return random.choice(FIRST_NAMES).upper()
     return ""
 
 
 def get_last_name(mode, fixed=""):
     if mode == "fixed" and fixed.strip():
         return fixed.strip().upper()
-    if mode == "random":
-        base = random.choice(NUMBER_WORDS)
-        if random.random() < 0.3:
-            return base + str(random.randint(1, 9))
-        return base
+    if mode in ("number", "random"):
+        return random.choice(NUMBER_WORDS)
+    if mode == "real":
+        return random.choice(LAST_NAMES).upper()
     return ""
 
 
@@ -82,6 +83,12 @@ def generate_names(count, first_mode, last_mode, fixed_first, fixed_last):
 def name_mode(label):
     if label == "Fixed":
         return "fixed"
+    if "store" in label.lower():
+        return "store"
+    if "One-Twenty" in label:
+        return "number"
+    if "real" in label.lower():
+        return "real"
     if "Random" in label:
         return "random"
     return "blank"
