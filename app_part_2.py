@@ -92,9 +92,17 @@ with head_r:
 
 with st.sidebar:
     st.header("Name Settings")
-    first_mode_label = st.radio("First Name", ["Fixed", "Random (store item)", "Blank"], index=1)
+    first_mode_label = st.radio(
+        "First Name",
+        ["Fixed", "Random (store item)", "Random (real 1st name)", "Blank"],
+        index=1,
+    )
     fixed_first = st.text_input("Fixed First Name", value="LAPTOP", disabled=(first_mode_label != "Fixed"))
-    last_mode_label = st.radio("Last Name", ["Fixed", "Random (One-Twenty)", "Blank"], index=1)
+    last_mode_label = st.radio(
+        "Last Name",
+        ["Fixed", "Random (One-Twenty)", "Random (real last name)", "Blank"],
+        index=1,
+    )
     fixed_last = st.text_input("Fixed Last Name", value="ONE", disabled=(last_mode_label != "Fixed"))
     st.header("Batch")
     count = st.selectbox("Number of variations", COUNTS, index=1)
