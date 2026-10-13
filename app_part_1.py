@@ -36,16 +36,16 @@ def double_first_vowel(word: str) -> str:
     return word
 
 
-def format_bestbuy(parts, code_on=True, code_letters=4, code_digits=4, city_mode="doubled") -> dict:
+def spell_city(city: str, mode: str) -> str:
+    if mode == "doubled":
+        return " ".join(double_first_vowel(word) for word in city.split())
+    return city
+
+
+def format_bestbuy(parts, code_on=True, code_letters=4, code_digits=4, city_mode="both") -> dict:
     street = mutate_street_name(parts["street_name"])
     stype = mutate_street_type(parts["street_type"])
-    words = parts["city"].split()
-    if city_mode == "regular":
-        city = parts["city"]
-    elif city_mode == "mix":
-        city = " ".join(double_first_vowel(word) if random.random() < 0.5 else word for word in words)
-    else:
-        city = " ".join(double_first_vowel(word) for word in words)
+    city = spell_city(parts["city"], "doubled" if city_mode == "doubled" else "regular")
     line1 = f"{random_junk(3, 'abcdefghijklmnopqrstuvwxyz')}{parts['house']} {street} {stype}"
     line2 = ""
     if code_on and (code_letters or code_digits):
@@ -73,10 +73,15 @@ def generate_bestbuy(addresses, count, code_on, code_letters, code_digits, city_
         if qty == 0:
             continue
         parts = parse_address(address)
+        seq = {"n": 0}
 
         def build(attempt, parts=parts, qty=qty):
             letters = code_letters + (1 if attempt > max(qty * 12, 800) else 0)
-            rec = format_bestbuy(parts, code_on, letters, code_digits, city_mode)
+            mode = city_mode
+            if city_mode == "both":
+                mode = "regular" if seq["n"] % 2 == 0 else "doubled"
+            seq["n"] += 1
+            rec = format_bestbuy(parts, code_on, letters, code_digits, mode)
             return apply_line_jig(rec, jig)
 
         batch = _take_unique(qty, build)
@@ -180,6 +185,58 @@ def jig_profile_name(prefix: str) -> str:
     return f"{base}-@{tok(3)}-#{tok(3)}-%{tok(3)}-&{tok(3)}-@{tok(3)}-%{tok(3)}"
 
 
+def normalize_card_type(raw: str) -> str:
+    key = " ".join((raw or "").strip().lower().split())
+    return {
+        "visa": "Visa",
+        "mastercard": "Mastercard",
+        "master card": "Mastercard",
+        "mc": "Mastercard",
+        "amex": "AmericanExpress",
+        "american express": "AmericanExpress",
+        "americanexpress": "AmericanExpress",
+        "discover": "Discover",
+    }.get(key, (raw or "").strip())
+
+
+def parse_card_csv(text: str):
+    sample = text.lstrip("\ufeff")
+    reader = csv.DictReader(StringIO(sample))
+    if not reader.fieldnames:
+        raise ValueError("The card file needs a header row.")
+    fields = {name.strip().lower(): name for name in reader.fieldnames if name}
+
+    def col(row, *names):
+        for name in names:
+            key = fields.get(name)
+            if key and row.get(key):
+                return str(row[key]).strip()
+        return ""
+
+    cards = []
+    for row in reader:
+        number = re.sub(r"\s+", "", col(row, "card number"))
+        if not number:
+            continue
+        status = col(row, "card state").lower()
+        if status and status not in {"active", "yes", "true"}:
+            continue
+        month = col(row, "expiration month")
+        if month.isdigit():
+            month = month.zfill(2)
+        cards.append({
+            "name": col(row, "name on card"),
+            "number": number,
+            "month": month,
+            "year": col(row, "expiration year"),
+            "cvv": col(row, "card cvv", "cvv"),
+            "type": normalize_card_type(col(row, "card type")),
+        })
+    if not cards:
+        raise ValueError("No cards found. The file needs a Card Number column.")
+    return cards
+
+
 def export_rows(names, records, opts):
     rows = []
     for index, (name, rec) in enumerate(zip(names, records), start=1):
@@ -214,7 +271,22 @@ def export_rows(names, records, opts):
                 "state": spell_state(opts["billing_state"], opts["full_state"]) if opts["billing_state"] else "",
                 "country": opts["country"] or "United States",
             }
-        card_name = opts["card_name"]
+        cards = opts.get("cards") or []
+        if cards:
+            card = cards[(index - 1) % len(cards)]
+            card_name = card["name"]
+            card_type = card["type"]
+            card_number = card["number"]
+            card_month = card["month"]
+            card_year = card["year"]
+            card_cvv = card["cvv"]
+        else:
+            card_name = opts["card_name"]
+            card_type = opts["card_type"]
+            card_number = opts["card_number"]
+            card_month = opts["card_month"]
+            card_year = opts["card_year"]
+            card_cvv = opts["card_cvv"]
         if opts["match_card"] and not card_name:
             card_name = bill["name"] or ship["name"]
         profile = jig_profile_name(opts["prefix"]) if opts["jig_names"] else f"{opts['prefix'].strip() or 'Address'} {index}"
@@ -223,11 +295,11 @@ def export_rows(names, records, opts):
             "ship": ship,
             "bill": bill,
             "card_name": card_name,
-            "card_type": opts["card_type"],
-            "card_number": opts["card_number"],
-            "card_month": opts["card_month"],
-            "card_year": opts["card_year"],
-            "card_cvv": opts["card_cvv"],
+            "card_type": card_type,
+            "card_number": card_number,
+            "card_month": card_month,
+            "card_year": card_year,
+            "card_cvv": card_cvv,
             "notes": opts["notes"],
             "size": opts["size"],
             "only_once": opts["only_once"],
@@ -352,3 +424,5 @@ def show_results(key, names, addresses, count, opts):
     st.text("\n\n".join(lines[:10]))
     with st.expander(f"View all {len(addresses)} variations"):
         st.text_area("All results", full_text, height=400, key=f"{key}-all")
+
+
