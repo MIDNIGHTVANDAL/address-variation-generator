@@ -37,6 +37,7 @@ NUMBER_WORDS = [
     "EIGHTEEN", "NINETEEN", "TWENTY",
 ]
 
+# SSA most common given names, 50 male and 50 female.
 FIRST_NAMES = [
     "James", "Mary", "Robert", "Patricia", "John", "Jennifer", "Michael", "Linda",
     "David", "Elizabeth", "William", "Barbara", "Richard", "Susan", "Joseph", "Jessica",
@@ -53,6 +54,7 @@ FIRST_NAMES = [
     "Jerry", "Maria", "Tyler", "Heather",
 ]
 
+# US Census most common surnames.
 LAST_NAMES = [
     "Smith", "Johnson", "Williams", "Brown", "Jones", "Garcia", "Miller", "Davis",
     "Rodriguez", "Martinez", "Hernandez", "Lopez", "Gonzalez", "Wilson", "Anderson", "Thomas",
@@ -111,6 +113,31 @@ def random_junk(length: int = 2, letters: str = "ABCDEFGHIJKLMNOPQRSTUVWXYZ") ->
     return "".join(random.choices(letters, k=length))
 
 
+def peel_state(tokens):
+    """Only a real state name or abbreviation leaves the city. Square stays in Newtown Square."""
+    if not tokens:
+        return "", tokens
+    by_name = {name.upper(): abbr for abbr, name in US_STATES.items()}
+
+    def take(count, abbr):
+        return abbr, tokens[:-count]
+
+    if len(tokens) >= 3:
+        three = " ".join(tok.upper().rstrip(".") for tok in tokens[-3:])
+        if three in by_name:
+            return take(3, by_name[three])
+    if len(tokens) >= 2:
+        two = " ".join(tok.upper().rstrip(".") for tok in tokens[-2:])
+        if two in by_name:
+            return take(2, by_name[two])
+    last = tokens[-1].upper().rstrip(".")
+    if last in US_STATES:
+        return take(1, last)
+    if last in by_name:
+        return take(1, by_name[last])
+    return "", tokens
+
+
 def parse_address(addr: str):
     addr = " ".join(addr.replace(",", " ").split()).strip()
     zip_match = re.search(r"\b(\d{5})(?:-\d{4})?\b\s*$", addr)
@@ -120,12 +147,11 @@ def parse_address(addr: str):
 
     tokens = addr.split()
     if len(tokens) < 4:
-        raise ValueError("Need a house number, street, city, and state.")
+        raise ValueError("Need a house number, street, and city.")
 
     house = tokens[0] if re.match(r"^\d+", tokens[0]) else ""
     rest = tokens[1:] if house else tokens
-    state = rest[-1].upper() if rest else ""
-    rest = rest[:-1]
+    state, rest = peel_state(rest)
 
     dirs = {
         "N", "S", "E", "W", "NE", "NW", "SE", "SW",
@@ -197,16 +223,29 @@ def spread_count(total: int, groups: int):
 
 
 def render_text(rec) -> str:
+    city = rec["city"]
+    state = (rec.get("state") or "").strip()
+    zipcode = (rec.get("zip") or "").strip()
     if rec.get("kind") == "bestbuy":
+        tail = " ".join(part for part in (state, zipcode) if part)
+        loc = f"{city}, {tail}" if tail else city
         lines = [rec["line1"]]
         if rec.get("line2"):
             lines.append(rec["line2"])
         if rec.get("line3"):
             lines.append(rec["line3"])
-        lines.append(f"{rec['city']}, {rec['state']} {rec['zip']}")
+        lines.append(loc)
         return "\n".join(lines)
     extra = f" {rec['line2']}" if rec.get("line2") else ""
-    return f"{rec['line1']}{extra} {rec['city']}, {rec['state']}, {rec['zip']}"
+    if state and zipcode:
+        loc = f"{city}, {state}, {zipcode}"
+    elif zipcode:
+        loc = f"{city}, {zipcode}"
+    elif state:
+        loc = f"{city}, {state}"
+    else:
+        loc = city
+    return f"{rec['line1']}{extra} {loc}"
 
 
 def apply_line_jig(rec, jig):
@@ -312,3 +351,5 @@ def generate_target(addresses, count, junk_len, include_dash, extra_spaces, case
             seen.add(rec["text"])
         results.extend(batch)
     return results
+
+
