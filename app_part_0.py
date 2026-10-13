@@ -37,7 +37,6 @@ NUMBER_WORDS = [
     "EIGHTEEN", "NINETEEN", "TWENTY",
 ]
 
-# SSA most common given names, 50 male and 50 female.
 FIRST_NAMES = [
     "James", "Mary", "Robert", "Patricia", "John", "Jennifer", "Michael", "Linda",
     "David", "Elizabeth", "William", "Barbara", "Richard", "Susan", "Joseph", "Jessica",
@@ -54,7 +53,6 @@ FIRST_NAMES = [
     "Jerry", "Maria", "Tyler", "Heather",
 ]
 
-# US Census most common surnames.
 LAST_NAMES = [
     "Smith", "Johnson", "Williams", "Brown", "Jones", "Garcia", "Miller", "Davis",
     "Rodriguez", "Martinez", "Hernandez", "Lopez", "Gonzalez", "Wilson", "Anderson", "Thomas",
@@ -81,6 +79,16 @@ STREET_TYPES = {
 }
 
 COUNTS = [50, 100, 250, 500, 1000, 5000]
+MAX_VARIATIONS = 20000
+MAX_ADDRESSES = 10
+UNIT_TYPES = ["Apt", "Unit", "#", "Suite", "Ste", "Floor"]
+NAME_SUFFIXES = ["JR", "SR", "II", "III"]
+HIDDEN_JIG = {
+    "name_initial": False,
+    "name_suffix": False,
+    "unit_line": False,
+    "zip_plus4": False,
+}
 LETTER_SWAPS = {"a": "e", "e": "a", "i": "y", "o": "u", "u": "o", "y": "i"}
 
 
@@ -160,6 +168,72 @@ def parse_address(addr: str):
     }
 
 
+def load_hidden_jig():
+    path = os.path.join(SCRIPT_DIR, "hidden", "jig_options.json")
+    options = dict(HIDDEN_JIG)
+    try:
+        with open(path, encoding="utf-8") as handle:
+            saved = json.load(handle)
+        for key in options:
+            if key in saved:
+                options[key] = bool(saved[key])
+    except Exception:
+        pass
+    return options
+
+
+def split_addresses(raw: str):
+    lines = [line.strip() for line in raw.splitlines() if line.strip()]
+    if not lines:
+        raise ValueError("Please enter an address.")
+    if len(lines) > MAX_ADDRESSES:
+        raise ValueError(f"Use {MAX_ADDRESSES} addresses or fewer. Put one address on each line.")
+    return lines
+
+
+def spread_count(total: int, groups: int):
+    base, extra = divmod(total, groups)
+    return [base + (1 if index < extra else 0) for index in range(groups)]
+
+
+def render_text(rec) -> str:
+    if rec.get("kind") == "bestbuy":
+        lines = [rec["line1"]]
+        if rec.get("line2"):
+            lines.append(rec["line2"])
+        if rec.get("line3"):
+            lines.append(rec["line3"])
+        lines.append(f"{rec['city']}, {rec['state']} {rec['zip']}")
+        return "\n".join(lines)
+    extra = f" {rec['line2']}" if rec.get("line2") else ""
+    return f"{rec['line1']}{extra} {rec['city']}, {rec['state']}, {rec['zip']}"
+
+
+def apply_line_jig(rec, jig):
+    rec = dict(rec)
+    if jig.get("zip_plus4") and rec["zip"].isdigit() and len(rec["zip"]) == 5:
+        rec["zip"] = f"{rec['zip']}-{random.randint(1000, 9999)}"
+    if jig.get("unit_line"):
+        unit = f"{random.choice(UNIT_TYPES)} {random.randint(1, 999)}"
+        if rec.get("kind") == "bestbuy" and rec.get("line2"):
+            rec["line3"] = unit
+        else:
+            rec["line2"] = unit
+    rec["text"] = render_text(rec)
+    return rec
+
+
+def apply_name_jig(name, jig):
+    if not name:
+        return name
+    parts = name.split()
+    if jig.get("name_initial") and parts and len(parts[0]) > 1:
+        parts[0] = parts[0][0] + "."
+    if jig.get("name_suffix"):
+        parts.append(random.choice(NAME_SUFFIXES))
+    return " ".join(parts)
+
+
 def format_target(parts, junk1, junk2, include_dash, extra_spaces, case_style) -> dict:
     sep = " - " if include_dash else " "
     gap = "  " if extra_spaces else " "
@@ -174,9 +248,8 @@ def format_target(parts, junk1, junk2, include_dash, extra_spaces, case_style) -
         street_line, city, state = street_line.upper(), city.upper(), state.upper()
     elif case_style == "lower":
         street_line, city, state = street_line.lower(), city.lower(), state.lower()
-    text = f"{street_line} {city}, {state}, {zipcode}"
-    return {
-        "text": text,
+    rec = {
+        "kind": "target",
         "line1": street_line.strip(),
         "line2": "",
         "line3": "",
@@ -184,23 +257,58 @@ def format_target(parts, junk1, junk2, include_dash, extra_spaces, case_style) -
         "state": state,
         "zip": zipcode,
     }
+    rec["text"] = render_text(rec)
+    return rec
 
 
-def generate_target(address, count, junk_len, include_dash, extra_spaces, case_style):
-    parts = parse_address(address)
+def _take_unique(count, build):
+    seen = set()
     results = []
-    used = set()
     attempts = 0
-    while len(results) < count and attempts < count * 40:
+    limit = max(count * 60, 200)
+    while len(results) < count and attempts < limit:
         attempts += 1
-        j1, j2 = random_junk(junk_len), random_junk(junk_len)
-        if (j1, j2) in used and len(used) < 26 ** max(junk_len, 1):
+        rec = build(attempts)
+        if rec["text"] in seen:
             continue
-        used.add((j1, j2))
-        results.append(format_target(parts, j1, j2, include_dash, extra_spaces, case_style))
-    while len(results) < count:
-        results.append(format_target(
-            parts, random_junk(junk_len), random_junk(junk_len),
-            include_dash, extra_spaces, case_style,
-        ))
+        seen.add(rec["text"])
+        results.append(rec)
+    if len(results) < count:
+        raise RuntimeError(
+            f"Only {len(results)} unique variations fit these settings. Turn on a jig option or lengthen the junk or code line."
+        )
+    return results
+
+
+def generate_target(addresses, count, junk_len, include_dash, extra_spaces, case_style, jig):
+    quotas = spread_count(count, len(addresses))
+    seen = set()
+    results = []
+    for address, qty in zip(addresses, quotas):
+        if qty == 0:
+            continue
+        parts = parse_address(address)
+
+        def build(attempt, parts=parts, qty=qty):
+            extra = 0
+            if attempt > max(qty * 8, 400):
+                extra = 1
+            if attempt > max(qty * 25, 2000):
+                extra = 2
+            rec = format_target(
+                parts,
+                random_junk(junk_len + extra),
+                random_junk(junk_len + extra),
+                include_dash,
+                extra_spaces,
+                case_style,
+            )
+            return apply_line_jig(rec, jig)
+
+        batch = _take_unique(qty, build)
+        for rec in batch:
+            if rec["text"] in seen:
+                raise RuntimeError("Two of the addresses produced the same line. Change one of them.")
+            seen.add(rec["text"])
+        results.extend(batch)
     return results
