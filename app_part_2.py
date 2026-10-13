@@ -57,11 +57,10 @@ with st.sidebar:
     case_style = st.selectbox("Case style", ["mixed", "upper", "lower"], index=0)
 
 address_input = st.text_area(
-    "Enter real address",
+    "Enter address",
     value="",
     height=80,
-    placeholder="15504 SW 144TH TER Portland OR 97224",
-    help="Example: 15504 SW 144TH TER Portland OR 97224",
+    placeholder="Enter address",
 )
 
 if st.button("GENERATE VARIATIONS", type="primary", use_container_width=True):
