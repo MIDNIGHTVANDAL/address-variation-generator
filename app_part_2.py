@@ -53,6 +53,20 @@ st.markdown(
         color: #ff7ac8;
         margin: 0 0 0.35rem;
     }
+    .mv-banner {
+        display: flex;
+        gap: 16px;
+        align-items: center;
+        padding: 8px 4px 14px;
+    }
+    .mv-banner h1 { margin: 0 !important; font-size: 1.7rem !important; }
+    .mv-mark { flex: 0 0 auto; filter: drop-shadow(0 0 12px rgba(255, 45, 149, 0.55)); }
+    .mv-lock-note {
+        font-size: 0.92rem;
+        line-height: 1.35;
+        color: #e7c6ea;
+        margin: 0.4rem 0 0.55rem;
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -87,8 +101,26 @@ with head_l:
     if IMAGE_PATH:
         st.image(IMAGE_PATH, width=80)
 with head_r:
-    st.title("Address Variation Generator")
-    st.caption("Created by Midnightvandal")
+    st.markdown(
+        """
+        <div class="mv-banner">
+          <svg class="mv-mark" width="74" height="74" viewBox="0 0 74 74" fill="none" aria-hidden="true">
+            <circle cx="37" cy="37" r="34" stroke="#ff4db8" stroke-width="2"/>
+            <path d="M18 32c4-12 34-12 38 0v8c-2 16-36 16-38 0v-8z" fill="#1a0b22" stroke="#ff7ac8"/>
+            <path d="M22 30c3-8 27-8 30 0" stroke="#b026ff" stroke-width="2"/>
+            <circle cx="29" cy="36" r="3" fill="#ff4db8"/>
+            <circle cx="45" cy="36" r="3" fill="#ff4db8"/>
+            <path d="M30 46h14" stroke="#ffd6f2" stroke-width="2"/>
+          </svg>
+          <div>
+            <p class="mv-kicker">MIDNIGHTVANDAL</p>
+            <h1>Address Variation Generator</h1>
+            <p class="mv-kicker">TARGET · BEST BUY · AYCD · SHEET</p>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 with st.sidebar:
     st.header("Name Settings")
@@ -106,8 +138,80 @@ with st.sidebar:
     fixed_last = st.text_input("Fixed Last Name", value="ONE", disabled=(last_mode_label != "Fixed"))
     st.header("Batch")
     count = st.selectbox("Number of variations", COUNTS, index=1)
-    if st.button("Lock"):
+    st.header("Export fields")
+    st.caption("Blank until you type them. Generated name and address fill the shipping columns.")
+    profile_prefix = st.text_input("Profile name starts with", value="Address")
+    jig_names = st.checkbox("Jig each profile name", value=True)
+    full_state = st.checkbox("Spell out state names", value=True)
+    country = st.text_input("Country", value="United States")
+    email = st.text_input("Email", value="")
+    ship_email = st.text_input("Shipping email, if different", value="")
+    phone = st.text_input("Phone", value="")
+    size_value = st.text_input("Size (optional)", value="")
+    notes = st.text_input("AYCD notes", value="")
+    only_once = st.checkbox("Only one checkout", value=False)
+    same_billing = st.checkbox("Same billing and shipping", value=False)
+    match_card = st.checkbox("Match name on card and address", value=False)
+    with st.expander("Billing and card, optional"):
+        billing_name = st.text_input("Billing name", value="", key="bill-name")
+        billing_phone = st.text_input("Billing phone", value="", key="bill-phone")
+        billing_line1 = st.text_input("Billing address", value="", key="bill-line")
+        billing_line2 = st.text_input("Billing address 2", value="", key="bill-line2")
+        billing_city = st.text_input("Billing city", value="", key="bill-city")
+        billing_state = st.text_input("Billing state", value="", key="bill-state")
+        billing_zip = st.text_input("Billing ZIP", value="", key="bill-zip")
+        card_name = st.text_input("Name on card", value="", key="card-name")
+        card_type = st.selectbox(
+            "Card type",
+            ["", "Visa", "Mastercard", "AmericanExpress", "Discover"],
+            key="card-type",
+        )
+        card_number = st.text_input("Card number", value="", key="card-number")
+        card_month = st.text_input("Expiration month", value="", key="card-month")
+        card_year = st.text_input("Expiration year", value="", key="card-year")
+        card_cvv = st.text_input("CVV", value="", type="password", key="card-cvv")
+    export_opts = {
+        "prefix": profile_prefix,
+        "jig_names": jig_names,
+        "full_state": full_state,
+        "country": country,
+        "email": email.strip(),
+        "ship_email": ship_email.strip(),
+        "phone": phone.strip(),
+        "size": size_value.strip(),
+        "notes": notes.strip(),
+        "only_once": only_once,
+        "same_billing": same_billing,
+        "match_card": match_card,
+        "billing_name": billing_name.strip(),
+        "billing_phone": billing_phone.strip(),
+        "billing_line1": billing_line1.strip(),
+        "billing_line2": billing_line2.strip(),
+        "billing_city": billing_city.strip(),
+        "billing_state": billing_state.strip(),
+        "billing_zip": billing_zip.strip(),
+        "card_name": card_name.strip(),
+        "card_type": card_type,
+        "card_number": card_number.strip(),
+        "card_month": card_month.strip(),
+        "card_year": card_year.strip(),
+        "card_cvv": card_cvv.strip(),
+    }
+    st.divider()
+    st.markdown(
+        """
+        <svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true">
+          <rect x="6" y="12" width="16" height="12" rx="2" fill="#ff4db8"/>
+          <path d="M9 12V9a5 5 0 0 1 10 0v3" stroke="#ffd6f2" stroke-width="2" fill="none"/>
+        </svg>
+        <p class="mv-lock-note">Lock signs this browser out and brings the password box back. The list on screen is cleared.</p>
+        """,
+        unsafe_allow_html=True,
+    )
+    if st.button("Lock", use_container_width=True):
         st.session_state["authed"] = False
+        st.session_state.pop("target_out", None)
+        st.session_state.pop("bb_out", None)
         st.rerun()
 
 target_tab, bestbuy_tab = st.tabs(["Target", "Best Buy"])
@@ -133,7 +237,7 @@ with target_tab:
             except Exception as exc:
                 st.error(str(exc))
     if "target_out" in st.session_state:
-        show_results("target", *st.session_state["target_out"], count)
+        show_results("target", *st.session_state["target_out"], count, export_opts)
 
 with bestbuy_tab:
     st.markdown('<p class="mv-kicker">BEST BUY</p>', unsafe_allow_html=True)
@@ -150,4 +254,4 @@ with bestbuy_tab:
             except Exception as exc:
                 st.error(str(exc))
     if "bb_out" in st.session_state:
-        show_results("bestbuy", *st.session_state["bb_out"], count)
+        show_results("bestbuy", *st.session_state["bb_out"], count, export_opts)
