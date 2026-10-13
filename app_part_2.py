@@ -137,7 +137,27 @@ with st.sidebar:
     )
     fixed_last = st.text_input("Fixed Last Name", value="ONE", disabled=(last_mode_label != "Fixed"))
     st.header("Batch")
-    count = st.selectbox("Number of variations", COUNTS, index=1)
+    count = st.number_input(
+        "Number of variations",
+        min_value=1,
+        max_value=MAX_VARIATIONS,
+        value=100,
+        step=1,
+        help="Any number from 1 to 20,000. Each line is unique.",
+    )
+    hidden_jig = load_hidden_jig()
+    with st.expander("Jig options"):
+        st.caption("Off unless you turn them on. Starting values come from hidden/jig_options.json.")
+        jig_initial = st.checkbox("First name as an initial", value=hidden_jig["name_initial"])
+        jig_suffix = st.checkbox("Add a name suffix (Jr, Sr, II, III)", value=hidden_jig["name_suffix"])
+        jig_unit = st.checkbox("Add a unit line (Apt, Unit, Suite, #)", value=hidden_jig["unit_line"])
+        jig_zip4 = st.checkbox("Add ZIP+4", value=hidden_jig["zip_plus4"])
+    jig = {
+        "name_initial": jig_initial,
+        "name_suffix": jig_suffix,
+        "unit_line": jig_unit,
+        "zip_plus4": jig_zip4,
+    }
     st.header("Export fields")
     st.caption("Blank until you type them. Generated name and address fill the shipping columns.")
     profile_prefix = st.text_input("Profile name starts with", value="Address")
@@ -218,21 +238,32 @@ target_tab, bestbuy_tab = st.tabs(["Target", "Best Buy"])
 
 with target_tab:
     st.markdown('<p class="mv-kicker">TARGET</p>', unsafe_allow_html=True)
-    st.caption("Word+digit house number, junk letters on the street name and spelled-out street type.")
+    st.caption("One address per line, up to 10. Word+digit house number, junk letters, spelled-out street type.")
     junk_len = st.slider("Junk letter length", 1, 4, 2, key="t-junk")
     include_dash = st.checkbox("Include dash separator", value=True, key="t-dash")
     extra_spaces = st.checkbox("Extra spaces in the street line", value=False, key="t-space")
     case_style = st.selectbox("Case style", ["mixed", "upper", "lower"], index=0, key="t-case")
-    target_address = st.text_area("Enter address", value="", height=80, placeholder="Enter address", key="t-addr")
+    target_address = st.text_area(
+        "Enter address", value="", height=140,
+        placeholder="Enter address\nOne per line, up to 10",
+        key="t-addr",
+    )
     if st.button("GENERATE VARIATIONS", type="primary", use_container_width=True, key="t-go"):
         if not target_address.strip():
             st.error("Please enter an address.")
         else:
             try:
+                chosen = split_addresses(target_address)
                 addresses = generate_target(
-                    target_address.strip(), count, junk_len, include_dash, extra_spaces, case_style,
+                    chosen, int(count), junk_len, include_dash, extra_spaces, case_style, jig,
                 )
-                names = generate_names(len(addresses), name_mode(first_mode_label), name_mode(last_mode_label), fixed_first, fixed_last)
+                names = [
+                    apply_name_jig(name, jig)
+                    for name in generate_names(
+                        len(addresses), name_mode(first_mode_label), name_mode(last_mode_label),
+                        fixed_first, fixed_last,
+                    )
+                ]
                 st.session_state["target_out"] = (names, addresses)
             except Exception as exc:
                 st.error(str(exc))
@@ -241,15 +272,37 @@ with target_tab:
 
 with bestbuy_tab:
     st.markdown('<p class="mv-kicker">BEST BUY</p>', unsafe_allow_html=True)
-    st.caption("Junk prefix on the house number, nudged street name, spelled-out type with one inserted letter, extra code line, doubled vowel in the city.")
-    bb_address = st.text_area("Enter address", value="", height=80, placeholder="Enter address", key="b-addr")
+    st.caption("One address per line, up to 10. Junk prefix, nudged street, spelled-out type.")
+    code_on = st.checkbox("Include extra code line", value=True, key="b-code")
+    code_letters = st.slider("Code letters", 0, 8, 4, key="b-letters", disabled=not code_on)
+    code_digits = st.slider("Code digits", 0, 8, 4, key="b-digits", disabled=not code_on)
+    city_mode_label = st.selectbox(
+        "City spelling",
+        ["Doubled vowel", "Regular spelling", "Mix both"],
+        key="b-city",
+    )
+    city_mode = {"Doubled vowel": "doubled", "Regular spelling": "regular", "Mix both": "mix"}[city_mode_label]
+    bb_address = st.text_area(
+        "Enter address", value="", height=140,
+        placeholder="Enter address\nOne per line, up to 10",
+        key="b-addr",
+    )
     if st.button("GENERATE VARIATIONS", type="primary", use_container_width=True, key="b-go"):
         if not bb_address.strip():
             st.error("Please enter an address.")
         else:
             try:
-                addresses = generate_bestbuy(bb_address.strip(), count)
-                names = generate_names(len(addresses), name_mode(first_mode_label), name_mode(last_mode_label), fixed_first, fixed_last)
+                chosen = split_addresses(bb_address)
+                addresses = generate_bestbuy(
+                    chosen, int(count), code_on, int(code_letters), int(code_digits), city_mode, jig,
+                )
+                names = [
+                    apply_name_jig(name, jig)
+                    for name in generate_names(
+                        len(addresses), name_mode(first_mode_label), name_mode(last_mode_label),
+                        fixed_first, fixed_last,
+                    )
+                ]
                 st.session_state["bb_out"] = (names, addresses)
             except Exception as exc:
                 st.error(str(exc))
