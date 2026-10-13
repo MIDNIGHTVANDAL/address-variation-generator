@@ -58,6 +58,30 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+
+def app_password() -> str:
+    try:
+        return str(st.secrets["APP_PASSWORD"]).strip()
+    except Exception:
+        return os.environ.get("APP_PASSWORD", "").strip()
+
+
+_saved_password = app_password()
+if not st.session_state.get("authed"):
+    st.title("Address Variation Generator")
+    st.caption("Created by Midnightvandal")
+    if not _saved_password:
+        st.error("This app is locked. Add APP_PASSWORD in Streamlit secrets, then reboot.")
+        st.stop()
+    entered = st.text_input("Password", type="password")
+    if st.button("Unlock", type="primary"):
+        if entered == _saved_password:
+            st.session_state["authed"] = True
+            st.rerun()
+        else:
+            st.error("Wrong password.")
+    st.stop()
+
 head_l, head_r = st.columns([1, 5])
 with head_l:
     if IMAGE_PATH:
@@ -74,6 +98,9 @@ with st.sidebar:
     fixed_last = st.text_input("Fixed Last Name", value="ONE", disabled=(last_mode_label != "Fixed"))
     st.header("Batch")
     count = st.selectbox("Number of variations", COUNTS, index=1)
+    if st.button("Lock"):
+        st.session_state["authed"] = False
+        st.rerun()
 
 target_tab, bestbuy_tab = st.tabs(["Target", "Best Buy"])
 
