@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+  <body>
+    <script>
+      function send(type, data) {
+        window.parent.postMessage(
+          Object.assign({ isStreamlitMessage: true, type: type }, data),
+          "*"
+        );
+      }
+      function ready() {
+        send("streamlit:componentReady", { apiVersion: 1 });
+        send("streamlit:setFrameHeight", { height: 0 });
+      }
+      function reply(value) {
+        send("streamlit:setComponentValue", { value: value, dataType: "json" });
+      }
+      function readSaved() {
+        try {
+          var raw = localStorage.getItem("mv_saved_fields");
+          return raw ? JSON.parse(raw) : {};
+        } catch (err) {
+          return {};
+        }
+      }
+      window.addEventListener("message", function (event) {
+        if (!event.data || event.data.type !== "streamlit:render") return;
+        var args = event.data.args || {};
+        if (args.action === "save" && args.payload) {
+          localStorage.setItem("mv_saved_fields", JSON.stringify(args.payload));
+        }
+        if (args.action === "clear") {
+          localStorage.removeItem("mv_saved_fields");
+        }
+        reply({ data: readSaved() });
+        send("streamlit:setFrameHeight", { height: 0 });
+      });
+      ready();
+    </script>
+  </body>
+</html>
