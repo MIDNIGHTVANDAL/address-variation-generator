@@ -177,6 +177,48 @@ def spell_state(state: str, full: bool) -> str:
     return key if key in US_STATES else raw
 
 
+def state_forms(state: str):
+    raw = (state or "").strip()
+    key = raw.upper()
+    if key in US_STATES:
+        return key, US_STATES[key]
+    for abbr, name in US_STATES.items():
+        if name.lower() == raw.lower():
+            return abbr, name
+    return raw, raw
+
+
+def unique_cards(cards):
+    seen = set()
+    unique = []
+    for card in cards or []:
+        number = re.sub(r"\s+", "", str(card.get("number") or ""))
+        if not number or number in seen:
+            continue
+        seen.add(number)
+        item = dict(card)
+        item["number"] = number
+        month = str(item.get("month") or "")
+        if month.isdigit():
+            item["month"] = month.zfill(2)
+        unique.append(item)
+    return unique
+
+
+def card_pool(opts):
+    cards = list(opts.get("cards") or [])
+    if not cards and str(opts.get("card_number") or "").strip():
+        cards = [{
+            "name": opts.get("card_name") or "",
+            "number": opts.get("card_number") or "",
+            "month": opts.get("card_month") or "",
+            "year": opts.get("card_year") or "",
+            "cvv": opts.get("card_cvv") or "",
+            "type": opts.get("card_type") or "",
+        }]
+    return unique_cards(cards)
+
+
 def jig_profile_name(prefix: str) -> str:
     alphabet = "0123456789abcdef"
     def tok(n):
@@ -240,7 +282,8 @@ def parse_card_csv(text: str):
 def export_rows(names, records, opts):
     rows = []
     for index, (name, rec) in enumerate(zip(names, records), start=1):
-        state = spell_state(rec["state"], opts["full_state"])
+        state_abbr, state_full = state_forms(rec["state"])
+        state = state_full if opts["full_state"] else state_abbr
         ship = {
             "name": name,
             "phone": opts["phone"],
@@ -251,6 +294,8 @@ def export_rows(names, records, opts):
             "zip": rec["zip"],
             "city": rec["city"],
             "state": state,
+            "state_abbr": state_abbr,
+            "state_full": state_full,
             "country": opts["country"] or "United States",
         }
         if opts["same_billing"]:
@@ -259,6 +304,7 @@ def export_rows(names, records, opts):
             bill["email"] = opts["email"] or ship["email"]
             bill["phone"] = opts["billing_phone"] or ship["phone"]
         else:
+            bill_abbr, bill_full = state_forms(opts["billing_state"])
             bill = {
                 "name": opts["billing_name"],
                 "phone": opts["billing_phone"] or opts["phone"],
@@ -268,12 +314,14 @@ def export_rows(names, records, opts):
                 "line3": "",
                 "zip": opts["billing_zip"],
                 "city": opts["billing_city"],
-                "state": spell_state(opts["billing_state"], opts["full_state"]) if opts["billing_state"] else "",
+                "state": bill_full if opts["full_state"] else bill_abbr,
+                "state_abbr": bill_abbr,
+                "state_full": bill_full,
                 "country": opts["country"] or "United States",
             }
-        cards = opts.get("cards") or []
-        if cards:
-            card = cards[(index - 1) % len(cards)]
+        pool = card_pool(opts)
+        if index - 1 < len(pool):
+            card = pool[index - 1]
             card_name = card["name"]
             card_type = card["type"]
             card_number = card["number"]
@@ -281,12 +329,12 @@ def export_rows(names, records, opts):
             card_year = card["year"]
             card_cvv = card["cvv"]
         else:
-            card_name = opts["card_name"]
-            card_type = opts["card_type"]
-            card_number = opts["card_number"]
-            card_month = opts["card_month"]
-            card_year = opts["card_year"]
-            card_cvv = opts["card_cvv"]
+            card_name = ""
+            card_type = ""
+            card_number = ""
+            card_month = ""
+            card_year = ""
+            card_cvv = ""
         if opts["match_card"] and not card_name:
             card_name = bill["name"] or ship["name"]
         profile = jig_profile_name(opts["prefix"]) if opts["jig_names"] else f"{opts['prefix'].strip() or 'Address'} {index}"
@@ -310,11 +358,11 @@ def export_rows(names, records, opts):
     return rows
 
 
-def to_sheet_csv(names, records, opts) -> str:
+def to_sheet_csv(names, records, opts, rows=None) -> str:
     buffer = StringIO()
     writer = csv.DictWriter(buffer, fieldnames=SHEET_COLUMNS, lineterminator="\n")
     writer.writeheader()
-    for row in export_rows(names, records, opts):
+    for row in rows if rows is not None else export_rows(names, records, opts):
         ship, bill = row["ship"], row["bill"]
         writer.writerow({
             "Email Address": row["email"],
@@ -350,9 +398,9 @@ def to_sheet_csv(names, records, opts) -> str:
     return buffer.getvalue()
 
 
-def to_aycd_json(names, records, opts) -> str:
+def to_aycd_json(names, records, opts, rows=None) -> str:
     profiles = []
-    for row in export_rows(names, records, opts):
+    for row in rows if rows is not None else export_rows(names, records, opts):
         ship, bill = row["ship"], row["bill"]
         profiles.append({
             "name": row["profile"],
@@ -396,30 +444,440 @@ def to_aycd_json(names, records, opts) -> str:
     return json.dumps(profiles, indent=2)
 
 
+def split_name(full: str):
+    parts = (full or "").split()
+    if not parts:
+        return "", ""
+    if len(parts) == 1:
+        return parts[0], ""
+    return parts[0], " ".join(parts[1:])
+
+
+def digits_only(text: str) -> str:
+    return re.sub(r"\D", "", text or "")
+
+
+def phone_dashed(text: str) -> str:
+    number = digits_only(text)
+    if len(number) == 11 and number.startswith("1"):
+        number = number[1:]
+    if len(number) == 10:
+        return f"{number[:3]}-{number[3:6]}-{number[6:]}"
+    return number
+
+
+def year_2(year: str) -> str:
+    digits = digits_only(str(year or ""))
+    if len(digits) >= 4:
+        return digits[-2:]
+    return digits
+
+
+def year_4(year: str) -> str:
+    digits = digits_only(str(year or ""))
+    if len(digits) == 2:
+        return "20" + digits
+    return digits
+
+
+def month_2(month: str) -> str:
+    digits = digits_only(str(month or ""))
+    if not digits:
+        return ""
+    return digits.zfill(2)[-2:]
+
+
+def month_plain(month: str) -> str:
+    digits = digits_only(str(month or ""))
+    if not digits:
+        return ""
+    return str(int(digits))
+
+
+def is_us(country: str) -> bool:
+    return (country or "").strip().lower() in {
+        "", "us", "usa", "united states", "united states of america",
+    }
+
+
+def country_code(country: str) -> str:
+    return "US" if is_us(country) else (country or "").strip()
+
+
+def country_name(country: str) -> str:
+    return "United States" if is_us(country) else (country or "").strip()
+
+
+def extra_line(block: dict) -> str:
+    return " ".join(part for part in (block.get("line2") or "", block.get("line3") or "") if part).strip()
+
+
+def card_label(card_type: str, style: str) -> str:
+    key = normalize_card_type(card_type) if card_type else ""
+    table = {
+        "AmericanExpress": {"stellar": "Amex", "valor": "amex", "aycd": "AmericanExpress"},
+        "Visa": {"stellar": "Visa", "valor": "visa", "aycd": "Visa"},
+        "Mastercard": {"stellar": "Mastercard", "valor": "mastercard", "aycd": "Mastercard"},
+        "Discover": {"stellar": "Discover", "valor": "discover", "aycd": "Discover"},
+    }
+    if not key:
+        return ""
+    return table.get(key, {}).get(style, key)
+
+
+def valor_number(number: str, card_type: str) -> str:
+    digits = digits_only(number)
+    if card_label(card_type, "valor") == "amex" and len(digits) == 15:
+        return f"{digits[:4]} {digits[4:10]} {digits[10:]}"
+    if len(digits) == 16:
+        return " ".join(digits[i:i + 4] for i in range(0, 16, 4))
+    return digits
+
+
+def to_stellar_json(rows) -> str:
+    profiles = []
+    for row in rows:
+        ship, bill = row["ship"], row["bill"]
+        ship_first, ship_last = split_name(ship["name"])
+        bill_first, bill_last = split_name(bill["name"])
+        profiles.append({
+            "profileName": row["profile"],
+            "email": bill["email"] or row["email"],
+            "phone": digits_only(ship["phone"]),
+            "shipping": {
+                "firstName": ship_first,
+                "lastName": ship_last,
+                "country": country_code(ship["country"]),
+                "address": ship["line1"],
+                "address2": extra_line(ship),
+                "state": ship["state_abbr"],
+                "city": ship["city"],
+                "zipcode": ship["zip"],
+            },
+            "billingAsShipping": row["same_billing"],
+            "oneCheckoutPerProfile": row["only_once"],
+            "billing": {
+                "firstName": bill_first,
+                "lastName": bill_last,
+                "country": country_code(bill["country"]),
+                "address": bill["line1"],
+                "address2": extra_line(bill),
+                "state": bill["state_abbr"],
+                "city": bill["city"],
+                "zipcode": bill["zip"],
+            },
+            "payment": {
+                "cardName": row["card_name"],
+                "cardType": card_label(row["card_type"], "stellar"),
+                "cardNumber": digits_only(row["card_number"]),
+                "cardMonth": month_2(row["card_month"]),
+                "cardYear": year_2(row["card_year"]),
+                "cardCvv": row["card_cvv"],
+            },
+        })
+    return json.dumps(profiles, indent=2)
+
+
+def to_valor_json(rows) -> str:
+    profiles = {}
+    for row in rows:
+        ship, bill = row["ship"], row["bill"]
+        ship_first, ship_last = split_name(ship["name"])
+        bill_first, bill_last = split_name(bill["name"])
+        profile_id = str(uuid.uuid4())
+        profiles[profile_id] = {
+            "name": row["profile"],
+            "email": ship["email"] or row["email"],
+            "phoneNumber": phone_dashed(ship["phone"]),
+            "billingSameAsShipping": row["same_billing"],
+            "oneCheckout": row["only_once"],
+            "quickTask": False,
+            "card": {
+                "holder": row["card_name"],
+                "number": valor_number(row["card_number"], row["card_type"]),
+                "expiration": "/".join(
+                    part for part in (month_2(row["card_month"]), year_2(row["card_year"])) if part
+                ),
+                "cvv": row["card_cvv"],
+                "type": card_label(row["card_type"], "valor"),
+            },
+            "shipping": {
+                "firstName": ship_first,
+                "lastName": ship_last,
+                "addressLine1": ship["line1"],
+                "addressLine2": extra_line(ship),
+                "city": ship["city"],
+                "countryName": country_name(ship["country"]),
+                "countryCode": country_code(ship["country"]),
+                "state": ship["state_full"],
+                "zipCode": ship["zip"],
+            },
+            "billing": {
+                "firstName": bill_first,
+                "lastName": bill_last,
+                "addressLine1": bill["line1"],
+                "addressLine2": extra_line(bill),
+                "city": bill["city"],
+                "countryName": country_name(bill["country"]),
+                "countryCode": country_code(bill["country"]),
+                "state": bill["state_full"],
+                "zipCode": bill["zip"],
+            },
+            "id": profile_id,
+            "totalSpent": 0,
+        }
+    return json.dumps(profiles, indent=2)
+
+
+def to_alpine_json(rows) -> str:
+    profiles = []
+    for row in rows:
+        ship, bill = row["ship"], row["bill"]
+        ship_first, ship_last = split_name(ship["name"])
+        bill_first, bill_last = split_name(bill["name"])
+        profiles.append({
+            "name": row["profile"],
+            "email": bill["email"] or row["email"],
+            "phoneNumber": digits_only(ship["phone"]),
+            "sameAddress": row["same_billing"],
+            "shippingAddress": {
+                "addressLine1": ship["line1"],
+                "addressLine2": extra_line(ship),
+                "city": ship["city"],
+                "zip": ship["zip"],
+                "region": "",
+                "state": ship["state_abbr"],
+                "countryCode": country_code(ship["country"]),
+                "firstName": ship_first,
+                "lastName": ship_last,
+            },
+            "billingAddress": {
+                "addressLine1": bill["line1"],
+                "addressLine2": extra_line(bill),
+                "city": bill["city"],
+                "zip": bill["zip"],
+                "region": "",
+                "state": bill["state_abbr"],
+                "countryCode": country_code(bill["country"]),
+                "firstName": bill_first,
+                "lastName": bill_last,
+            },
+            "card": {
+                "cardNumber": digits_only(row["card_number"]),
+                "cvv": row["card_cvv"],
+                "expiryMonth": month_2(row["card_month"]),
+                "expiryYear": year_2(row["card_year"]),
+            },
+        })
+    return json.dumps(profiles, indent=2)
+
+
+def to_hidden_json(rows) -> str:
+    profiles = []
+    for row in rows:
+        ship, bill = row["ship"], row["bill"]
+        profiles.append({
+            "name": row["profile"],
+            "notes": row["notes"],
+            "billingAddress": {
+                "name": bill["name"],
+                "email": bill["email"],
+                "phone": digits_only(bill["phone"]),
+                "line1": bill["line1"],
+                "line2": bill["line2"],
+                "line3": bill["line3"],
+                "postCode": bill["zip"],
+                "city": bill["city"],
+                "country": country_name(bill["country"]),
+                "state": bill["state_full"],
+            },
+            "shippingAddress": {
+                "name": ship["name"],
+                "email": ship["email"],
+                "phone": digits_only(ship["phone"]),
+                "line1": ship["line1"],
+                "line2": ship["line2"],
+                "line3": ship["line3"],
+                "postCode": ship["zip"],
+                "city": ship["city"],
+                "country": country_name(ship["country"]),
+                "state": ship["state_full"],
+            },
+            "paymentDetails": {
+                "nameOnCard": row["card_name"],
+                "cardType": card_label(row["card_type"], "aycd"),
+                "cardNumber": digits_only(row["card_number"]),
+                "cardExpMonth": month_2(row["card_month"]),
+                "cardExpYear": year_4(row["card_year"]),
+                "cardCvv": row["card_cvv"],
+            },
+            "sameBillingAndShippingAddress": row["same_billing"],
+            "onlyCheckoutOnce": row["only_once"],
+            "matchNameOnCardAndAddress": row["match_card"],
+        })
+    return json.dumps(profiles, indent=2)
+
+
+def to_makebot_csv(rows) -> str:
+    columns = [
+        "profileName", "firstName", "lastName", "email", "address1", "address2",
+        "city", "state", "zipcode", "country", "phoneNumber", "ccNumber",
+        "ccMonth", "ccYear", "cvv",
+    ]
+    buffer = StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=columns, lineterminator="\n")
+    writer.writeheader()
+    for row in rows:
+        ship = row["ship"]
+        first, last = split_name(ship["name"])
+        writer.writerow({
+            "profileName": row["profile"],
+            "firstName": first,
+            "lastName": last,
+            "email": ship["email"] or row["email"],
+            "address1": ship["line1"],
+            "address2": extra_line(ship),
+            "city": ship["city"],
+            "state": ship["state_abbr"],
+            "zipcode": ship["zip"],
+            "country": country_code(ship["country"]),
+            "phoneNumber": digits_only(ship["phone"]),
+            "ccNumber": digits_only(row["card_number"]),
+            "ccMonth": month_2(row["card_month"]),
+            "ccYear": year_2(row["card_year"]),
+            "cvv": row["card_cvv"],
+        })
+    return buffer.getvalue()
+
+
+def to_refract_json(rows) -> str:
+    now = int(time.time() * 1000)
+    profiles = []
+    for row in rows:
+        ship, bill = row["ship"], row["bill"]
+        ship_first, ship_last = split_name(ship["name"])
+        bill_first, bill_last = split_name(bill["name"])
+        profiles.append({
+            "name": row["profile"],
+            "email": bill["email"] or row["email"],
+            "oneTimeUse": row["only_once"],
+            "shipping": {
+                "firstName": ship_first,
+                "lastName": ship_last,
+                "address1": ship["line1"],
+                "address2": extra_line(ship),
+                "city": ship["city"],
+                "province": ship["state_full"],
+                "postalCode": ship["zip"],
+                "country": country_name(ship["country"]),
+                "phone": digits_only(ship["phone"]),
+            },
+            "billing": {
+                "sameAsShipping": row["same_billing"],
+                "firstName": bill_first,
+                "lastName": bill_last,
+                "address1": bill["line1"],
+                "address2": extra_line(bill),
+                "city": bill["city"],
+                "province": bill["state_full"],
+                "postalCode": bill["zip"],
+                "country": country_name(bill["country"]),
+                "phone": digits_only(bill["phone"]),
+            },
+            "payment": {
+                "name": row["card_name"],
+                "num": digits_only(row["card_number"]),
+                "year": year_4(row["card_year"]),
+                "month": month_2(row["card_month"]),
+                "cvv": row["card_cvv"],
+            },
+            "id": f"prf-{uuid.uuid4()}",
+            "createdAt": now,
+            "updatedAt": now + 1000,
+        })
+    return json.dumps(profiles, indent=2)
+
+
+def to_shikari_csv(rows) -> str:
+    columns = [
+        "profile_name", "first_name", "last_name", "email", "phone_num",
+        "cc_number", "cc_exp_month", "cc_exp_year", "cc_cvv",
+        "shipping_street", "shipping_street_2", "shipping_city", "shipping_state",
+        "shipping_zip_code", "shipping_country",
+        "billing_first_name", "billing_last_name", "billing_street", "billing_street_2",
+        "billing_city", "billing_state", "billing_zip_code", "billing_country",
+    ]
+    buffer = StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=columns, lineterminator="\n")
+    writer.writeheader()
+    for row in rows:
+        ship, bill = row["ship"], row["bill"]
+        ship_first, ship_last = split_name(ship["name"])
+        bill_first, bill_last = split_name(bill["name"])
+        writer.writerow({
+            "profile_name": row["profile"],
+            "first_name": ship_first,
+            "last_name": ship_last,
+            "email": ship["email"] or row["email"],
+            "phone_num": digits_only(ship["phone"]),
+            "cc_number": digits_only(row["card_number"]),
+            "cc_exp_month": month_plain(row["card_month"]),
+            "cc_exp_year": year_4(row["card_year"]),
+            "cc_cvv": row["card_cvv"],
+            "shipping_street": ship["line1"],
+            "shipping_street_2": extra_line(ship),
+            "shipping_city": ship["city"],
+            "shipping_state": ship["state_abbr"],
+            "shipping_zip_code": ship["zip"],
+            "shipping_country": country_code(ship["country"]),
+            "billing_first_name": bill_first,
+            "billing_last_name": bill_last,
+            "billing_street": bill["line1"],
+            "billing_street_2": extra_line(bill),
+            "billing_city": bill["city"],
+            "billing_state": bill["state_abbr"],
+            "billing_zip_code": bill["zip"],
+            "billing_country": country_code(bill["country"]),
+        })
+    return buffer.getvalue()
+
+
 def show_results(key, names, addresses, count, opts):
     lines = pack_lines(names, addresses)
     full_text = "\n\n".join(lines)
+    rows = export_rows(names, addresses, opts)
+    filled = sum(1 for row in rows if row["card_number"])
     st.success(f"Generated {len(addresses)} variations")
+    if filled and filled < len(rows):
+        st.warning(
+            f"{len(rows)} profiles and {filled} unique cards. "
+            "Extra profiles have no card so a card is never repeated."
+        )
+    elif filled:
+        st.caption(f"{filled} unique cards, one per profile. Nothing is repeated.")
     st.markdown('<p class="mv-kicker">EXPORT</p>', unsafe_allow_html=True)
-    st.caption("TXT is the on-screen list. CSV/Google Sheet uses the spreadsheet columns. AYCD is the profile JSON. Card and billing cells stay blank unless you fill Export fields.")
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.download_button(
-            "Download TXT", full_text, file_name=f"{key}_variations_{count}.txt",
-            mime="text/plain", use_container_width=True, type="primary", key=f"{key}-txt",
-        )
-    with col2:
-        st.download_button(
-            "CSV / Google Sheet", to_sheet_csv(names, addresses, opts),
-            file_name=f"{key}_variations_{count}.csv",
-            mime="text/csv", use_container_width=True, key=f"{key}-csv",
-        )
-    with col3:
-        st.download_button(
-            "Export AYCD", to_aycd_json(names, addresses, opts),
-            file_name=f"{key}_variations_{count}.json",
-            mime="application/json", use_container_width=True, key=f"{key}-aycd",
-        )
+    st.caption("TXT is the on-screen list. The other buttons match each site's file. Card cells stay blank when there is no unique card left.")
+    exports = [
+        ("Download TXT", full_text, f"{key}_variations_{count}.txt", "text/plain", f"{key}-txt"),
+        ("CSV / Google Sheet", to_sheet_csv(names, addresses, opts, rows), f"{key}_variations_{count}.csv", "text/csv", f"{key}-csv"),
+        ("Export AYCD", to_aycd_json(names, addresses, opts, rows), f"{key}_variations_{count}_aycd.json", "application/json", f"{key}-aycd"),
+        ("Stellar", to_stellar_json(rows), f"{key}_stellar_aio.json", "application/json", f"{key}-stellar"),
+        ("Valor", to_valor_json(rows), f"{key}_valor.json", "application/json", f"{key}-valor"),
+        ("Alpine", to_alpine_json(rows), f"{key}_alpine_aio.json", "application/json", f"{key}-alpine"),
+        ("Hidden", to_hidden_json(rows), f"{key}_hidden_aio.json", "application/json", f"{key}-hidden"),
+        ("Makebot", to_makebot_csv(rows), f"{key}_makebot.csv", "text/csv", f"{key}-makebot"),
+        ("Refract", to_refract_json(rows), f"{key}_refract.json", "application/json", f"{key}-refract"),
+        ("Shikari", to_shikari_csv(rows), f"{key}_shikari.csv", "text/csv", f"{key}-shikari"),
+    ]
+    for start in range(0, len(exports), 3):
+        columns = st.columns(3)
+        for column, (label, data, filename, mime, button_key) in zip(columns, exports[start:start + 3]):
+            with column:
+                st.download_button(
+                    label, data, file_name=filename, mime=mime,
+                    use_container_width=True, key=button_key,
+                    type="primary" if button_key.endswith("-txt") else "secondary",
+                )
     st.subheader("Preview (first 10)")
     st.text("\n\n".join(lines[:10]))
     with st.expander(f"View all {len(addresses)} variations"):
