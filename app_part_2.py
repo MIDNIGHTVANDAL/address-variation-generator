@@ -122,36 +122,142 @@ with head_r:
         unsafe_allow_html=True,
     )
 
+import streamlit.components.v1 as components
+
+_prefs_component = components.declare_component(
+    "mv_prefs",
+    path=os.path.join(SCRIPT_DIR, "mv_prefs"),
+)
+_hidden_jig = load_hidden_jig()
+PREF_DEFAULTS = {
+    "first_mode": "Random (store item)",
+    "fixed_first": "",
+    "last_mode": "Random (One-Twenty)",
+    "fixed_last": "",
+    "batch_count": 100,
+    "jig-initial": bool(_hidden_jig["name_initial"]),
+    "jig-suffix": bool(_hidden_jig["name_suffix"]),
+    "jig-unit": bool(_hidden_jig["unit_line"]),
+    "jig-zip4": bool(_hidden_jig["zip_plus4"]),
+    "profile_prefix": "Address",
+    "jig_names": True,
+    "full_state": True,
+    "country": "United States",
+    "email": "",
+    "ship_email": "",
+    "phone": "",
+    "size_value": "",
+    "notes": "",
+    "only_once": False,
+    "same_billing": False,
+    "match_card": False,
+    "bill-name": "",
+    "bill-phone": "",
+    "bill-line": "",
+    "bill-line2": "",
+    "bill-city": "",
+    "bill-state": "",
+    "bill-zip": "",
+    "t-addr": "",
+    "b-addr": "",
+    "t-junk": 2,
+    "t-dash": True,
+    "t-space": False,
+    "t-case": "mixed",
+    "b-code": True,
+    "b-letters": 4,
+    "b-digits": 4,
+    "b-regular": True,
+    "b-vowel": True,
+}
+_loaded_prefs = _prefs_component(action="load", payload={}, key="mv_prefs_load", default=None)
+if isinstance(_loaded_prefs, dict) and "data" in _loaded_prefs and not st.session_state.get("prefs_applied"):
+    _saved = _loaded_prefs.get("data") or {}
+    if isinstance(_saved, dict) and _saved:
+        for _key, _value in _saved.items():
+            if _key in PREF_DEFAULTS:
+                st.session_state[_key] = _value
+        if "batch_count" in st.session_state:
+            st.session_state["batch_count"] = max(1, min(int(st.session_state["batch_count"]), MAX_VARIATIONS))
+        st.session_state["prefs_applied"] = True
+        st.rerun()
+    else:
+        st.session_state["prefs_applied"] = True
+for _key, _default in PREF_DEFAULTS.items():
+    if _key not in st.session_state:
+        st.session_state[_key] = _default
+
 with st.sidebar:
+    st.header("Saved fields")
+    st.caption("Save once in this browser. Next visit fills the addresses and contact fields back in. Card numbers are not saved.")
+    _prefs_now = {key: st.session_state.get(key) for key in PREF_DEFAULTS}
+    save_col, clear_col = st.columns(2)
+    with save_col:
+        if st.button("Save my fields", use_container_width=True):
+            _prefs_component(action="save", payload=_prefs_now, key="mv_prefs_save")
+            st.success("Saved in this browser.")
+    with clear_col:
+        if st.button("Clear saved", use_container_width=True):
+            _prefs_component(action="clear", payload={}, key="mv_prefs_clear")
+            st.info("Cleared. This visit stays as it is.")
+    st.download_button(
+        "Download fields file",
+        json.dumps(_prefs_now, indent=2),
+        file_name="my_fields.json",
+        mime="application/json",
+        use_container_width=True,
+        key="prefs-download",
+    )
+    fields_file = st.file_uploader("Load a fields file", type=["json"], key="fields-json")
+    if fields_file is not None:
+        token = f"{fields_file.name}:{getattr(fields_file, 'size', 0)}"
+        if st.session_state.get("fields_token") != token:
+            loaded_fields = json.loads(fields_file.getvalue().decode("utf-8-sig"))
+            if isinstance(loaded_fields, dict):
+                for key, value in loaded_fields.items():
+                    if key in PREF_DEFAULTS:
+                        st.session_state[key] = value
+                st.session_state["fields_token"] = token
+                st.session_state["prefs_applied"] = True
+                st.rerun()
     st.header("Name Settings")
     first_mode_label = st.radio(
         "First Name",
         ["Fixed", "Random (store item)", "Random (real 1st name)", "Blank"],
-        index=1,
+        key="first_mode",
     )
-    fixed_first = st.text_input("Fixed First Name", value="LAPTOP", disabled=(first_mode_label != "Fixed"))
+    fixed_first = st.text_input(
+        "Fixed First Name",
+        placeholder="Input name here",
+        key="fixed_first",
+        disabled=(first_mode_label != "Fixed"),
+    )
     last_mode_label = st.radio(
         "Last Name",
         ["Fixed", "Random (One-Twenty)", "Random (real last name)", "Blank"],
-        index=1,
+        key="last_mode",
     )
-    fixed_last = st.text_input("Fixed Last Name", value="ONE", disabled=(last_mode_label != "Fixed"))
+    fixed_last = st.text_input(
+        "Fixed Last Name",
+        placeholder="Input name here",
+        key="fixed_last",
+        disabled=(last_mode_label != "Fixed"),
+    )
     st.header("Batch")
     count = st.number_input(
         "Number of variations",
         min_value=1,
         max_value=MAX_VARIATIONS,
-        value=100,
         step=1,
         help="Any number from 1 to 20,000. Each line is unique.",
+        key="batch_count",
     )
-    hidden_jig = load_hidden_jig()
     with st.expander("Jig options"):
         st.caption("Off unless you turn them on. Starting values come from hidden/jig_options.json.")
-        jig_initial = st.checkbox("First name as an initial", value=hidden_jig["name_initial"])
-        jig_suffix = st.checkbox("Add a name suffix (Jr, Sr, II, III)", value=hidden_jig["name_suffix"])
-        jig_unit = st.checkbox("Add a unit line (Apt, Unit, Suite, #)", value=hidden_jig["unit_line"])
-        jig_zip4 = st.checkbox("Add ZIP+4", value=hidden_jig["zip_plus4"])
+        jig_initial = st.checkbox("First name as an initial", key="jig-initial")
+        jig_suffix = st.checkbox("Add a name suffix (Jr, Sr, II, III)", key="jig-suffix")
+        jig_unit = st.checkbox("Add a unit line (Apt, Unit, Suite, #)", key="jig-unit")
+        jig_zip4 = st.checkbox("Add ZIP+4", key="jig-zip4")
     jig = {
         "name_initial": jig_initial,
         "name_suffix": jig_suffix,
@@ -160,26 +266,26 @@ with st.sidebar:
     }
     st.header("Export fields")
     st.caption("Blank until you type them. Generated name and address fill the shipping columns.")
-    profile_prefix = st.text_input("Profile name starts with", value="Address")
-    jig_names = st.checkbox("Jig each profile name", value=True)
-    full_state = st.checkbox("Spell out state names", value=True)
-    country = st.text_input("Country", value="United States")
-    email = st.text_input("Email", value="")
-    ship_email = st.text_input("Shipping email, if different", value="")
-    phone = st.text_input("Phone", value="")
-    size_value = st.text_input("Size (optional)", value="")
-    notes = st.text_input("AYCD notes", value="")
-    only_once = st.checkbox("Only one checkout", value=False)
-    same_billing = st.checkbox("Same billing and shipping", value=False)
-    match_card = st.checkbox("Match name on card and address", value=False)
+    profile_prefix = st.text_input("Profile name starts with", key="profile_prefix")
+    jig_names = st.checkbox("Jig each profile name", key="jig_names")
+    full_state = st.checkbox("Spell out state names", key="full_state")
+    country = st.text_input("Country", key="country")
+    email = st.text_input("Email", key="email")
+    ship_email = st.text_input("Shipping email, if different", key="ship_email")
+    phone = st.text_input("Phone", key="phone")
+    size_value = st.text_input("Size (optional)", key="size_value")
+    notes = st.text_input("AYCD notes", key="notes")
+    only_once = st.checkbox("Only one checkout", key="only_once")
+    same_billing = st.checkbox("Same billing and shipping", key="same_billing")
+    match_card = st.checkbox("Match name on card and address", key="match_card")
     with st.expander("Billing and card, optional"):
-        billing_name = st.text_input("Billing name", value="", key="bill-name")
-        billing_phone = st.text_input("Billing phone", value="", key="bill-phone")
-        billing_line1 = st.text_input("Billing address", value="", key="bill-line")
-        billing_line2 = st.text_input("Billing address 2", value="", key="bill-line2")
-        billing_city = st.text_input("Billing city", value="", key="bill-city")
-        billing_state = st.text_input("Billing state", value="", key="bill-state")
-        billing_zip = st.text_input("Billing ZIP", value="", key="bill-zip")
+        billing_name = st.text_input("Billing name", key="bill-name")
+        billing_phone = st.text_input("Billing phone", key="bill-phone")
+        billing_line1 = st.text_input("Billing address", key="bill-line")
+        billing_line2 = st.text_input("Billing address 2", key="bill-line2")
+        billing_city = st.text_input("Billing city", key="bill-city")
+        billing_state = st.text_input("Billing state", key="bill-state")
+        billing_zip = st.text_input("Billing ZIP", key="bill-zip")
         card_name = st.text_input("Name on card", value="", key="card-name")
         card_type = st.selectbox(
             "Card type",
@@ -199,8 +305,15 @@ with st.sidebar:
     uploaded_cards = []
     if card_file is not None:
         try:
-            uploaded_cards = parse_card_csv(card_file.getvalue().decode("utf-8-sig", errors="replace"))
-            st.caption(f"{len(uploaded_cards)} card(s) loaded. They rotate onto the profiles. Full numbers are only in the download.")
+            parsed_cards = parse_card_csv(card_file.getvalue().decode("utf-8-sig", errors="replace"))
+            uploaded_cards = unique_cards(parsed_cards)
+            skipped = len(parsed_cards) - len(uploaded_cards)
+            st.caption(
+                f"{len(uploaded_cards)} unique cards. Each profile gets the next card, once. "
+                "Full numbers are only in the download."
+            )
+            if skipped:
+                st.caption(f"{skipped} duplicate card numbers were skipped.")
             for card in uploaded_cards[:8]:
                 st.text(f"{card['type'] or 'Card'} ····{card['number'][-4:]}  {card['name']}")
             if len(uploaded_cards) > 8:
@@ -258,12 +371,12 @@ target_tab, bestbuy_tab = st.tabs(["Target", "Best Buy"])
 with target_tab:
     st.markdown('<p class="mv-kicker">TARGET</p>', unsafe_allow_html=True)
     st.caption("One address per line, up to 10. Word+digit house number, junk letters, spelled-out street type.")
-    junk_len = st.slider("Junk letter length", 1, 4, 2, key="t-junk")
-    include_dash = st.checkbox("Include dash separator", value=True, key="t-dash")
-    extra_spaces = st.checkbox("Extra spaces in the street line", value=False, key="t-space")
-    case_style = st.selectbox("Case style", ["mixed", "upper", "lower"], index=0, key="t-case")
+    junk_len = st.slider("Junk letter length", 1, 4, key="t-junk")
+    include_dash = st.checkbox("Include dash separator", key="t-dash")
+    extra_spaces = st.checkbox("Extra spaces in the street line", key="t-space")
+    case_style = st.selectbox("Case style", ["mixed", "upper", "lower"], key="t-case")
     target_address = st.text_area(
-        "Enter address", value="", height=140,
+        "Enter address", height=140,
         placeholder="Enter address\nOne per line, up to 10",
         key="t-addr",
     )
@@ -292,11 +405,11 @@ with target_tab:
 with bestbuy_tab:
     st.markdown('<p class="mv-kicker">BEST BUY</p>', unsafe_allow_html=True)
     st.caption("One address per line, up to 10. Junk prefix, nudged street, spelled-out type.")
-    code_on = st.checkbox("Include extra code line", value=True, key="b-code")
-    code_letters = st.slider("Code letters", 0, 8, 4, key="b-letters", disabled=not code_on)
-    code_digits = st.slider("Code digits", 0, 8, 4, key="b-digits", disabled=not code_on)
-    use_regular_city = st.checkbox("Regular city spelling", value=True, key="b-regular")
-    use_doubled_city = st.checkbox("Extra vowel in the city", value=True, key="b-vowel")
+    code_on = st.checkbox("Include extra code line", key="b-code")
+    code_letters = st.slider("Code letters", 0, 8, key="b-letters", disabled=not code_on)
+    code_digits = st.slider("Code digits", 0, 8, key="b-digits", disabled=not code_on)
+    use_regular_city = st.checkbox("Regular city spelling", key="b-regular")
+    use_doubled_city = st.checkbox("Extra vowel in the city", key="b-vowel")
     if use_regular_city and use_doubled_city:
         city_mode = "both"
     elif use_doubled_city:
@@ -304,7 +417,7 @@ with bestbuy_tab:
     else:
         city_mode = "regular"
     bb_address = st.text_area(
-        "Enter address", value="", height=140,
+        "Enter address", height=140,
         placeholder="Enter address\nOne per line, up to 10",
         key="b-addr",
     )
