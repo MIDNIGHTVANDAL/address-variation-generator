@@ -16,7 +16,9 @@ import uuid
 from io import StringIO
 import csv
 
+import jsonschema
 import streamlit as st
+import usaddress
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 IMAGE_PATH = os.path.join(SCRIPT_DIR, "midnightvandal.png")
@@ -140,7 +142,51 @@ def peel_state(tokens):
     return "", tokens
 
 
+def abbreviate_state(raw: str) -> str:
+    text = (raw or "").strip().rstrip(".")
+    key = text.upper()
+    if key in US_STATES:
+        return key
+    for abbr, name in US_STATES.items():
+        if name.upper() == key:
+            return abbr
+    return key
+
+
+def _parse_with_usaddress(addr: str):
+    try:
+        tagged, _kind = usaddress.tag(addr)
+    except (usaddress.RepeatedLabelError, Exception):
+        return None
+    house = (tagged.get("AddressNumber") or "").strip()
+    street = "".join((tagged.get("StreetName") or "").split()).upper()
+    street_type = (tagged.get("StreetNamePostType") or "").upper().rstrip(".")
+    city = " ".join((tagged.get("PlaceName") or "").split()).title()
+    state = abbreviate_state(tagged.get("StateName") or "")
+    zipcode = re.sub(r"\D", "", tagged.get("ZipCode") or "")[:5]
+    if not house or not street or not city:
+        return None
+    if not street_type:
+        street_type = "ST"
+    return {
+        "house": house,
+        "street_name": street,
+        "street_type": street_type,
+        "city": city,
+        "state": state if state in US_STATES else "",
+        "zip": zipcode,
+    }
+
+
 def parse_address(addr: str):
+    cleaned = " ".join(addr.replace(",", " ").split()).strip()
+    parsed = _parse_with_usaddress(cleaned)
+    if parsed:
+        return parsed
+    return _parse_address_tokens(cleaned)
+
+
+def _parse_address_tokens(addr: str):
     addr = " ".join(addr.replace(",", " ").split()).strip()
     zip_match = re.search(r"\b(\d{5})(?:-\d{4})?\b\s*$", addr)
     zipcode = zip_match.group(1) if zip_match else ""
