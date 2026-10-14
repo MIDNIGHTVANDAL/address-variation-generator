@@ -168,6 +168,21 @@ SHEET_COLUMNS = [
     "Billing State", "Billing Country", "Size (Optional)",
 ]
 
+MAKEBOT_COLUMNS = [
+    "profileName", "firstName", "lastName", "email", "address1", "address2",
+    "city", "state", "zipcode", "country", "phoneNumber", "ccNumber",
+    "ccMonth", "ccYear", "cvv",
+]
+
+SHIKARI_COLUMNS = [
+    "profile_name", "first_name", "last_name", "email", "phone_num",
+    "cc_number", "cc_exp_month", "cc_exp_year", "cc_cvv",
+    "shipping_street", "shipping_street_2", "shipping_city", "shipping_state",
+    "shipping_zip_code", "shipping_country",
+    "billing_first_name", "billing_last_name", "billing_street", "billing_street_2",
+    "billing_city", "billing_state", "billing_zip_code", "billing_country",
+]
+
 
 def spell_state(state: str, full: bool) -> str:
     raw = (state or "").strip()
@@ -719,13 +734,8 @@ def to_hidden_json(rows) -> str:
 
 
 def to_makebot_csv(rows) -> str:
-    columns = [
-        "profileName", "firstName", "lastName", "email", "address1", "address2",
-        "city", "state", "zipcode", "country", "phoneNumber", "ccNumber",
-        "ccMonth", "ccYear", "cvv",
-    ]
     buffer = StringIO()
-    writer = csv.DictWriter(buffer, fieldnames=columns, lineterminator="\n")
+    writer = csv.DictWriter(buffer, fieldnames=MAKEBOT_COLUMNS, lineterminator="\n")
     writer.writeheader()
     for row in rows:
         ship = row["ship"]
@@ -799,16 +809,8 @@ def to_refract_json(rows) -> str:
 
 
 def to_shikari_csv(rows) -> str:
-    columns = [
-        "profile_name", "first_name", "last_name", "email", "phone_num",
-        "cc_number", "cc_exp_month", "cc_exp_year", "cc_cvv",
-        "shipping_street", "shipping_street_2", "shipping_city", "shipping_state",
-        "shipping_zip_code", "shipping_country",
-        "billing_first_name", "billing_last_name", "billing_street", "billing_street_2",
-        "billing_city", "billing_state", "billing_zip_code", "billing_country",
-    ]
     buffer = StringIO()
-    writer = csv.DictWriter(buffer, fieldnames=columns, lineterminator="\n")
+    writer = csv.DictWriter(buffer, fieldnames=SHIKARI_COLUMNS, lineterminator="\n")
     writer.writeheader()
     for row in rows:
         ship, bill = row["ship"], row["bill"]
@@ -842,6 +844,163 @@ def to_shikari_csv(rows) -> str:
     return buffer.getvalue()
 
 
+def _string_object(fields):
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "required": list(fields),
+        "properties": {field: {"type": "string"} for field in fields},
+    }
+
+
+def _object(fields, types=None):
+    types = types or {}
+    properties = {}
+    for field in fields:
+        spec = types.get(field, "string")
+        properties[field] = spec if isinstance(spec, dict) else {"type": spec}
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "required": list(fields),
+        "properties": properties,
+    }
+
+
+_ADDRESS_AYCD = _string_object([
+    "name", "email", "phone", "line1", "line2", "line3", "postCode", "city", "country", "state",
+])
+_PAYMENT_AYCD = _string_object([
+    "nameOnCard", "cardType", "cardNumber", "cardExpMonth", "cardExpYear", "cardCvv",
+])
+_AYCD_SCHEMA = {
+    "type": "array",
+    "items": _object(
+        [
+            "name", "notes", "billingAddress", "shippingAddress", "paymentDetails",
+            "sameBillingAndShippingAddress", "onlyCheckoutOnce", "matchNameOnCardAndAddress",
+        ],
+        {
+            "billingAddress": _ADDRESS_AYCD,
+            "shippingAddress": _ADDRESS_AYCD,
+            "paymentDetails": _PAYMENT_AYCD,
+            "sameBillingAndShippingAddress": "boolean",
+            "onlyCheckoutOnce": "boolean",
+            "matchNameOnCardAndAddress": "boolean",
+        },
+    ),
+}
+_STELLAR_ADDRESS = _string_object([
+    "firstName", "lastName", "country", "address", "address2", "state", "city", "zipcode",
+])
+_STELLAR_SCHEMA = {
+    "type": "array",
+    "items": _object(
+        ["profileName", "email", "phone", "shipping", "billingAsShipping", "oneCheckoutPerProfile", "billing", "payment"],
+        {
+            "shipping": _STELLAR_ADDRESS,
+            "billing": _STELLAR_ADDRESS,
+            "payment": _string_object(["cardName", "cardType", "cardNumber", "cardMonth", "cardYear", "cardCvv"]),
+            "billingAsShipping": "boolean",
+            "oneCheckoutPerProfile": "boolean",
+        },
+    ),
+}
+_VALOR_PLACE = _string_object([
+    "firstName", "lastName", "addressLine1", "addressLine2", "city",
+    "countryName", "countryCode", "state", "zipCode",
+])
+_VALOR_SCHEMA = {
+    "type": "object",
+    "additionalProperties": _object(
+        ["name", "email", "phoneNumber", "billingSameAsShipping", "oneCheckout", "quickTask", "card", "shipping", "billing", "id", "totalSpent"],
+        {
+            "billingSameAsShipping": "boolean",
+            "oneCheckout": "boolean",
+            "quickTask": "boolean",
+            "card": _string_object(["holder", "number", "expiration", "cvv", "type"]),
+            "shipping": _VALOR_PLACE,
+            "billing": _VALOR_PLACE,
+            "totalSpent": "integer",
+        },
+    ),
+}
+_ALPINE_PLACE = _string_object([
+    "addressLine1", "addressLine2", "city", "zip", "region", "state", "countryCode", "firstName", "lastName",
+])
+_ALPINE_SCHEMA = {
+    "type": "array",
+    "items": _object(
+        ["name", "email", "phoneNumber", "sameAddress", "shippingAddress", "billingAddress", "card"],
+        {
+            "sameAddress": "boolean",
+            "shippingAddress": _ALPINE_PLACE,
+            "billingAddress": _ALPINE_PLACE,
+            "card": _string_object(["cardNumber", "cvv", "expiryMonth", "expiryYear"]),
+        },
+    ),
+}
+_REFRACT_PLACE = _string_object([
+    "firstName", "lastName", "address1", "address2", "city", "province", "postalCode", "country", "phone",
+])
+_REFRACT_BILLING = _object(
+    ["sameAsShipping", "firstName", "lastName", "address1", "address2", "city", "province", "postalCode", "country", "phone"],
+    {"sameAsShipping": "boolean"},
+)
+_REFRACT_SCHEMA = {
+    "type": "array",
+    "items": _object(
+        ["name", "email", "oneTimeUse", "shipping", "billing", "payment", "id", "createdAt", "updatedAt"],
+        {
+            "oneTimeUse": "boolean",
+            "shipping": _REFRACT_PLACE,
+            "billing": _REFRACT_BILLING,
+            "payment": _string_object(["name", "num", "year", "month", "cvv"]),
+            "createdAt": "integer",
+            "updatedAt": "integer",
+        },
+    ),
+}
+_EXPORT_SCHEMAS = {
+    "Export AYCD": _AYCD_SCHEMA,
+    "Hidden": _AYCD_SCHEMA,
+    "Stellar": _STELLAR_SCHEMA,
+    "Valor": _VALOR_SCHEMA,
+    "Alpine": _ALPINE_SCHEMA,
+    "Refract": _REFRACT_SCHEMA,
+}
+_EXPORT_COLUMNS = {
+    "CSV / Google Sheet": SHEET_COLUMNS,
+    "Makebot": MAKEBOT_COLUMNS,
+    "Shikari": SHIKARI_COLUMNS,
+}
+
+
+def export_problem(label: str, text: str) -> str:
+    columns = _EXPORT_COLUMNS.get(label)
+    if columns is not None:
+        rows = list(csv.reader(StringIO(text)))
+        if not rows or rows[0] != list(columns):
+            return "Column headers do not match this file."
+        for index, row in enumerate(rows[1:], start=2):
+            if len(row) != len(columns):
+                return f"Row {index} has the wrong number of columns."
+        return ""
+    schema = _EXPORT_SCHEMAS.get(label)
+    if schema is None:
+        return ""
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        return "File is not valid JSON."
+    try:
+        jsonschema.validate(data, schema)
+    except jsonschema.ValidationError as exc:
+        where = ".".join(str(part) for part in exc.absolute_path) or "file"
+        return f"{where}: {exc.message}"
+    return ""
+
+
 def show_results(key, names, addresses, count, opts):
     lines = pack_lines(names, addresses)
     full_text = "\n\n".join(lines)
@@ -856,7 +1015,7 @@ def show_results(key, names, addresses, count, opts):
     elif filled:
         st.caption(f"{filled} unique cards, one per profile. Nothing is repeated.")
     st.markdown('<p class="mv-kicker">EXPORT</p>', unsafe_allow_html=True)
-    st.caption("TXT is the on-screen list. The other buttons match each site's file. Card cells stay blank when there is no unique card left.")
+    st.caption("TXT is the on-screen list. Other files are checked against that site's shape before the button shows.")
     exports = [
         ("Download TXT", full_text, f"{key}_variations_{count}.txt", "text/plain", f"{key}-txt"),
         ("CSV / Google Sheet", to_sheet_csv(names, addresses, opts, rows), f"{key}_variations_{count}.csv", "text/csv", f"{key}-csv"),
@@ -873,11 +1032,15 @@ def show_results(key, names, addresses, count, opts):
         columns = st.columns(3)
         for column, (label, data, filename, mime, button_key) in zip(columns, exports[start:start + 3]):
             with column:
-                st.download_button(
-                    label, data, file_name=filename, mime=mime,
-                    use_container_width=True, key=button_key,
-                    type="primary" if button_key.endswith("-txt") else "secondary",
-                )
+                problem = export_problem(label, data)
+                if problem:
+                    st.error(f"{label} blocked. {problem}")
+                else:
+                    st.download_button(
+                        label, data, file_name=filename, mime=mime,
+                        use_container_width=True, key=button_key,
+                        type="primary" if button_key.endswith("-txt") else "secondary",
+                    )
     st.subheader("Preview (first 10)")
     st.text("\n\n".join(lines[:10]))
     with st.expander(f"View all {len(addresses)} variations"):
