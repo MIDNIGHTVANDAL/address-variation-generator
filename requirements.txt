@@ -1,1 +1,3 @@
 streamlit>=1.30.0
+usaddress>=0.5.10
+jsonschema>=4.17.0
