@@ -189,7 +189,7 @@ for _key, _default in PREF_DEFAULTS.items():
 
 with st.sidebar:
     st.header("Saved fields")
-    st.caption("Save once in this browser. Next visit fills the addresses and contact fields back in. Card numbers are not saved.")
+    st.caption("JSON fills the address and contact fields. CSV attaches cards to the profiles you generate. Card numbers stay in this visit only.")
     _prefs_now = {key: st.session_state.get(key) for key in PREF_DEFAULTS}
     save_col, clear_col = st.columns(2)
     with save_col:
@@ -208,11 +208,30 @@ with st.sidebar:
         use_container_width=True,
         key="prefs-download",
     )
-    fields_file = st.file_uploader("Load a fields file", type=["json"], key="fields-json")
+    fields_file = st.file_uploader(
+        "Load a fields file",
+        type=["json", "csv"],
+        key="fields-json",
+        help="JSON restores saved fields. CSV needs Name on Card, Card Number, Expiration Month, Expiration Year, Card CVV, Card Type, and Card State.",
+    )
     if fields_file is not None:
         token = f"{fields_file.name}:{getattr(fields_file, 'size', 0)}"
-        if st.session_state.get("fields_token") != token:
-            loaded_fields = json.loads(fields_file.getvalue().decode("utf-8-sig"))
+        raw_file = fields_file.getvalue().decode("utf-8-sig", errors="replace")
+        if fields_file.name.lower().endswith(".csv"):
+            if st.session_state.get("cards_token") != token:
+                try:
+                    parsed_cards = parse_card_csv(raw_file)
+                    st.session_state["loaded_cards"] = unique_cards(parsed_cards)
+                    st.session_state["cards_skipped"] = len(parsed_cards) - len(st.session_state["loaded_cards"])
+                    st.session_state["cards_token"] = token
+                except Exception as exc:
+                    st.error(str(exc))
+        elif st.session_state.get("fields_token") != token:
+            try:
+                loaded_fields = json.loads(raw_file)
+            except json.JSONDecodeError:
+                st.error("That file is not a fields JSON or a card CSV.")
+                loaded_fields = None
             if isinstance(loaded_fields, dict):
                 for key, value in loaded_fields.items():
                     if key in PREF_DEFAULTS:
@@ -300,26 +319,31 @@ with st.sidebar:
             "Upload cards CSV",
             type=["csv"],
             key=f"card-file-{st.session_state.get('upload_nonce', 0)}",
-            help="Columns: Name on Card, Card Number, Expiration Month, Expiration Year, Card CVV, Card Type, Card State.",
+            help="Same card file as Load a fields file. One card is used once, in order.",
         )
-    uploaded_cards = []
-    if card_file is not None:
-        try:
-            parsed_cards = parse_card_csv(card_file.getvalue().decode("utf-8-sig", errors="replace"))
-            uploaded_cards = unique_cards(parsed_cards)
-            skipped = len(parsed_cards) - len(uploaded_cards)
-            st.caption(
-                f"{len(uploaded_cards)} unique cards. Each profile gets the next card, once. "
-                "Full numbers are only in the download."
-            )
-            if skipped:
-                st.caption(f"{skipped} duplicate card numbers were skipped.")
-            for card in uploaded_cards[:8]:
-                st.text(f"{card['type'] or 'Card'} ····{card['number'][-4:]}  {card['name']}")
-            if len(uploaded_cards) > 8:
-                st.caption(f"and {len(uploaded_cards) - 8} more")
-        except Exception as exc:
-            st.error(str(exc))
+        if card_file is not None:
+            token = f"{card_file.name}:{getattr(card_file, 'size', 0)}"
+            if st.session_state.get("cards_token") != token:
+                try:
+                    parsed_cards = parse_card_csv(card_file.getvalue().decode("utf-8-sig", errors="replace"))
+                    st.session_state["loaded_cards"] = unique_cards(parsed_cards)
+                    st.session_state["cards_skipped"] = len(parsed_cards) - len(st.session_state["loaded_cards"])
+                    st.session_state["cards_token"] = token
+                except Exception as exc:
+                    st.error(str(exc))
+    uploaded_cards = list(st.session_state.get("loaded_cards") or [])
+    if uploaded_cards:
+        skipped = st.session_state.get("cards_skipped") or 0
+        st.caption(
+            f"{len(uploaded_cards)} unique cards ready. Each profile gets the next card once, "
+            "and every export gets that card in its own columns."
+        )
+        if skipped:
+            st.caption(f"{skipped} duplicate card numbers were skipped.")
+        for card in uploaded_cards[:8]:
+            st.text(f"{card['type'] or 'Card'} ····{card['number'][-4:]}  {card['name']}")
+        if len(uploaded_cards) > 8:
+            st.caption(f"and {len(uploaded_cards) - 8} more")
     export_opts = {
         "prefix": profile_prefix,
         "jig_names": jig_names,
@@ -363,6 +387,9 @@ with st.sidebar:
         st.session_state["authed"] = False
         st.session_state.pop("target_out", None)
         st.session_state.pop("bb_out", None)
+        st.session_state.pop("loaded_cards", None)
+        st.session_state.pop("cards_token", None)
+        st.session_state.pop("cards_skipped", None)
         st.session_state["upload_nonce"] = st.session_state.get("upload_nonce", 0) + 1
         st.rerun()
 
